@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IPL Auction Simulator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    h1, h2, h3 {
+      color: #1d1d1f;
+      font-weight: 600;
+    }
+    
+    h1 {
+      font-size: 28px;
+      margin-bottom: 30px;
+      text-align: center;
+      color: #1d1d1f;
+      font-weight: 700;
+    }
+    
+    h2 {
+      font-size: 22px;
+      margin-bottom: 20px;
+    }
+    
+    h3 {
+      font-size: 18px;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 12px 24px;
+      margin: 5px;
+      cursor: pointer;
+      background: #007AFF;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    button:hover {
+      background: #0051D5;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    button:disabled {
+      background: #d1d1d6;
+      color: #8e8e93;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    input {
+      padding: 10px 14px;
+      margin: 5px;
+      border: 1px solid #d1d1d6;
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      color: #1d1d1f;
+      transition: all 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #007AFF;
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    }
+    #teams {
+      list-style: none;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    #teams li {
+      padding: 15px;
+      margin: 0;
+      border: 2px solid;
+      border-radius: 12px;
+      text-align: center;
+      font-weight: 600;
+      transition: all 0.2s;
+      min-height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    #teams li.available {
+      cursor: pointer;
+    }
+    #teams li.available:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+      opacity: 0.95;
+    }
+    #teams li.selected {
+      border-width: 3px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+      transform: scale(1.05);
+    }
+    #status {
+      padding: 12px 16px;
+      margin-top: 20px;
+      background: white;
+      border-left: 4px solid #007AFF;
+      border-radius: 8px;
+      color: #1d1d1f;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    #rulesSection {
+      display: none;
+      margin: 20px 0 30px 0;
+      padding: 25px;
+      background: white;
+      border: 1px solid #e5e5ea;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    #rulesSection h3 {
+      margin-top: 0;
+      color: #1d1d1f;
+      font-size: 20px;
+    }
+    #rulesSection ul {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+    #rulesSection li {
+      margin: 6px 0;
+      line-height: 1.6;
+      color: #424245;
+    }
+    #rulesSection .rule-category {
+      font-weight: 600;
+      color: #1d1d1f;
+      margin-top: 15px;
+      margin-bottom: 8px;
+      font-size: 15px;
+    }
+    #startAuctionButton {
+      display: none;
+      margin-top: 20px;
+      background: #34C759;
+      font-size: 16px;
+      padding: 12px 30px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    #startAuctionButton:hover {
+      background: #30B650;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    
+    /* Auction Interface */
+    #auctionInterface {
+      display: none;
+    }
+    
+    .auction-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr 350px;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    
+    .left-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .main-auction {
+      background: white;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      border: 1px solid #e5e5ea;
+    }
+    
+    .current-player {
+      background: #1d1d1f;
+      color: white;
+      padding: 40px;
+      border-radius: 16px;
+      margin-bottom: 30px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+    
+    .current-player h2 {
+      color: white;
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+    
+    .player-details {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      margin-top: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .player-detail-item {
+      background: rgba(255,255,255,0.15);
+      padding: 12px 20px;
+      border-radius: 8px;
+    }
+    
+    .player-detail-item strong {
+      display: block;
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+    
+    .timer-section {
+      text-align: center;
+      margin: 30px 0;
+    }
+    
+    .timer-display {
+      font-size: 72px;
+      font-weight: 700;
+      color: #007AFF;
+      margin: 20px 0;
+      font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+    }
+    
+    .timer-display.warning {
+      color: #FF9500;
+    }
+    
+    .timer-display.danger {
+      color: #FF3B30;
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    
+    .bidding-section {
+      background: #f5f5f7;
+      padding: 25px;
+      border-radius: 16px;
+      margin-top: 30px;
+      border: 1px solid #e5e5ea;
+    }
+    
+    .current-bid {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    .current-bid-amount {
+      font-size: 36px;
+      font-weight: 700;
+      color: #34C759;
+      margin: 10px 0;
+    }
+    
+    .current-bidder {
+      color: #8e8e93;
+      font-size: 14px;
+    }
+    
+    .bid-input-group {
+      display: flex;
+      gap: 10px;
+      max-width: 500px;
+      margin: 0 auto;
+      flex-wrap: wrap;
+    }
+    
+    .bid-input-group input {
+      flex: 1;
+      font-size: 18px;
+      text-align: center;
+      font-weight: 600;
+      min-width: 150px;
+    }
+    
+    .bid-input-group button {
+      padding: 12px 30px;
+      font-size: 16px;
+      background: #34C759;
+    }
+    
+    .bid-input-group button:hover {
+      background: #30B650;
+    }
+    
+    .bid-input-group button:disabled {
+      background: #d1d1d6;
+      color: #8e8e93;
+      box-shadow: none;
+    }
+    
+    .quick-bid-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 15px;
+    }
+    
+    .quick-bid-btn {
+      padding: 10px 16px;
+      font-size: 13px;
+      background: #007AFF;
+      border-radius: 6px;
+      min-width: 80px;
+    }
+    
+    .quick-bid-btn:hover {
+      background: #0051D5;
+    }
+    
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .sidebar-card {
+      background: white;
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      border: 1px solid #e5e5ea;
+    }
+    
+    
+    .team-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .team-stat:last-child {
+      border-bottom: none;
+    }
+    
+    .team-stat-label {
+      color: #8e8e93;
+      font-size: 14px;
+    }
+    
+    .team-stat-value {
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+    
+    .all-teams {
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    
+    .team-row {
+      padding: 10px;
+      margin-bottom: 6px;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e5e5ea;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .team-row:hover {
+      background: #f5f5f7;
+      border-color: #d1d1d6;
+    }
+    
+    .team-row.expanded {
+      background: #f5f5f7;
+    }
+    
+    .team-overview-card {
+      padding: 15px;
+      border-radius: 10px;
+      background: white;
+      border: 1px solid #e5e5ea;
+      margin-bottom: 10px;
+    }
+    
+    .team-owner-name {
+      font-size: 13px;
+      color: #8e8e93;
+      font-weight: normal;
+      margin-top: 5px;
+    }
+    
+    .team-ai-label {
+      font-size: 13px;
+      color: #8e8e93;
+      font-style: italic;
+      margin-top: 5px;
+    }
+    
+    .players-list {
+      margin-top: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .player-item {
+      padding: 8px 10px;
+      margin: 4px 0;
+      background: #f5f5f7;
+      border-radius: 6px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .player-item:hover {
+      background: #e5e5ea;
+    }
+    
+    .player-name {
+      color: #1d1d1f;
+      font-weight: 500;
+    }
+    
+    .player-price {
+      color: #1d1d1f;
+      font-weight: 600;
+    }
+    
+    .team-row-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 0;
+    }
+    
+    .team-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    
+    .team-purse {
+      font-size: 13px;
+      color: #1d1d1f;
+      font-weight: 600;
+    }
+    
+    .team-stats {
+      display: none;
+    }
+    
+    .activity-log {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .activity-item {
+      padding: 10px;
+      margin-bottom: 8px;
+      border-left: 3px solid #d1d1d6;
+      background: #f5f5f7;
+      border-radius: 6px;
+      font-size: 13px;
+      color: #424245;
+    }
+    
+    .activity-item.sold {
+      border-left-color: #d1d1d6;
+      background: #f5f5f7;
+    }
+    
+    .activity-item.unsold {
+      border-left-color: #d1d1d6;
+      background: #f5f5f7;
+    }
+    
+    .activity-item.bid {
+      border-left-color: #d1d1d6;
+      background: #f5f5f7;
+    }
+    
+    .progress-bar {
+      background: #e5e5ea;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    
+    .progress-fill {
+      background: #007AFF;
+      height: 100%;
+      transition: width 0.3s;
+    }
+    
+    /* Hide team selection when auction starts */
+    .team-selection-section {
+      transition: opacity 0.3s;
+      background: white;
+      padding: 25px;
+      border-radius: 16px;
+      border: 1px solid #e5e5ea;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    
+    .team-selection-section.hidden {
+      display: none;
+    }
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 15px;
+      border-bottom: 2px solid #e5e5ea;
+    }
+    
+    .tab-button {
+      flex: 1;
+      padding: 10px;
+      background: transparent;
+      border: none;
+      color: #8e8e93;
+      font-weight: 500;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+    }
+    
+    .tab-button:hover {
+      color: #1d1d1f;
+      background: #f5f5f7;
+    }
+    
+    .tab-button.active {
+      color: #007AFF;
+      border-bottom-color: #007AFF;
+      background: transparent;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>IPL Auction Simulator</h1>
+
+    <div id="teamSelectionSection" class="team-selection-section">
+      <h2>Team Selection</h2>
+
+  <button onclick="createRoom()">Create New Room</button>
+  <br><br>
+
+  <input id="roomInput" placeholder="Enter Room ID to join" />
+  <button onclick="joinRoom()">Join Room</button>
+
+  <div id="lockSection" style="display: none; margin: 20px 0;">
+    <button id="lockButton" onclick="lockTeams()" style="background: #34C759; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+      Lock Teams & Start Auction
+    </button>
+  </div>
+
+  <div id="nameInputSection" style="display: none; margin: 20px 0; padding: 20px; background: white; border-radius: 12px; border: 1px solid #e5e5ea; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+    <label style="display: block; margin-bottom: 10px; color: #1d1d1f; font-weight: 500;">Enter Your Name:</label>
+    <input type="text" id="playerNameInput" placeholder="Your name" style="width: 100%; max-width: 300px; padding: 10px; border: 1px solid #d1d1d6; border-radius: 8px; background: white; color: #1d1d1f;">
+    <p style="margin-top: 10px; font-size: 12px; color: #8e8e93;">Enter your name before selecting a team</p>
+  </div>
+
+  <h3>Available Teams</h3>
+  <ul id="teams"></ul>
+
+  <div id="teamsOverview" style="display: none; margin-top: 30px; padding: 20px; background: white; border-radius: 12px; border: 1px solid #e5e5ea; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+    <h3 style="color: #1d1d1f; margin-bottom: 15px;">Team Assignments</h3>
+    <div id="teamsList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;"></div>
+  </div>
+
+  <div id="rulesSection">
+    <h3>Important Auction Rules</h3>
+    
+    <div class="rule-category">Timer:</div>
+    <ul>
+      <li>Each player starts with <strong>15 seconds</strong></li>
+      <li>After every new bid: Timer resets to <strong>10 seconds</strong></li>
+    </ul>
+
+    <div class="rule-category">Player Count:</div>
+    <ul>
+      <li><strong>Minimum:</strong> 12 players | <strong>Maximum:</strong> 15 players</li>
+      <li>Auction continues until all teams reach at least 12 players</li>
+    </ul>
+
+    <div class="rule-category">Bid Increments:</div>
+    <ul>
+      <li>₹0-1 Cr: ₹0.10 Cr | ₹1-5 Cr: ₹0.25 Cr | ₹5-10 Cr: ₹0.50 Cr</li>
+      <li>₹10-20 Cr: ₹1.00 Cr | ₹20+ Cr: ₹2.00 Cr</li>
+    </ul>
+
+    <div class="rule-category">Overseas Players:</div>
+    <ul>
+      <li>Maximum <strong>6 overseas players</strong> per team</li>
+    </ul>
+
+    <div class="rule-category">Auction End:</div>
+    <ul>
+      <li>Ends when all teams have at least 12 players</li>
+    </ul>
+
+    <button id="startAuctionButton" onclick="startAuction()">
+      Start Auction
+    </button>
+  </div>
+
+      <p id="status">Ready to create or join a room</p>
+    </div>
+
+    <!-- Auction Interface -->
+    <div id="auctionInterface" class="auction-layout">
+      <!-- Left Sidebar - My Team -->
+      <div class="left-sidebar">
+        <div class="sidebar-card my-team-info" id="myTeamCard">
+          <h3 style="color: #1d1d1f; margin-bottom: 15px; font-weight: 600;">My Team</h3>
+          <div id="myTeamStats"></div>
+          <div id="myTeamSquad" style="margin-top: 15px;"></div>
+        </div>
+      </div>
+      
+      <div class="main-auction">
+        <div class="current-player" id="currentPlayerCard">
+          <h2 id="playerName">Waiting for auction to start...</h2>
+          <div class="player-details" id="playerDetails"></div>
+        </div>
+
+        <div class="timer-section">
+          <div class="timer-display" id="timerDisplay">--</div>
+          <div id="timerLabel">Time Remaining</div>
+        </div>
+
+        <div class="bidding-section">
+          <div class="current-bid">
+            <div style="font-size: 14px; color: #6b7280; margin-bottom: 5px;">Current Bid</div>
+            <div class="current-bid-amount" id="currentBidAmount">₹0.00 Cr</div>
+            <div class="current-bidder" id="currentBidder">No bids yet</div>
+          </div>
+
+          <div class="bid-input-group">
+            <input type="number" id="bidInput" placeholder="Enter bid" step="0.1" min="0" onkeypress="if(event.key==='Enter') placeBid()">
+            <button id="placeBidButton" onclick="placeBid()">Place Bid</button>
+          </div>
+          <div class="quick-bid-buttons" id="quickBidButtons"></div>
+          <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #8e8e93;" id="minBidInfo"></div>
+        </div>
+
+        <div class="progress-bar" style="margin-top: 30px;">
+          <div class="progress-fill" id="auctionProgress"></div>
+        </div>
+        <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #8e8e93;" id="progressText">Player 0 of 0</div>
+      </div>
+
+      <div class="sidebar">
+        <div class="sidebar-card">
+          <div class="tabs">
+            <button class="tab-button active" onclick="switchTab('teams')" id="teamsTab">Teams</button>
+            <button class="tab-button" onclick="switchTab('activity')" id="activityTab">Activity</button>
+          </div>
+          
+          <div id="teamsTabContent" class="tab-content active">
+            <div id="allTeamsList"></div>
+          </div>
+          
+          <div id="activityTabContent" class="tab-content">
+            <div id="activityLog"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    // Auto-detect server URL - works for localhost, LAN, and deployed servers
+    const serverUrl = window.location.origin;
+    const socket = io(serverUrl);
+
+    let currentRoom = null;
+    let mySelectedTeam = null;
+    let isHost = false;
+    let teamsLocked = false;
+    let auctionStarted = false;
+    let currentPlayer = null;
+    let currentBid = null;
+    let currentBidder = null;
+    let timer = 0;
+    let allTeams = [];
+    let myTeam = null;
+    let expandedTeams = [];
+
+    function createRoom() {
+      socket.emit("create-room");
+    }
+
+    function joinRoom() {
+      currentRoom = document.getElementById("roomInput").value;
+      socket.emit("join-room", currentRoom);
+    }
+
+    function pickTeam(teamCode) {
+      if (!currentRoom) {
+        document.getElementById("status").innerText = "Please create or join a room first";
+        return;
+      }
+      if (teamsLocked) {
+        document.getElementById("status").innerText = "Teams are locked. Cannot change selection.";
+        return;
+      }
+      
+      const playerName = document.getElementById("playerNameInput").value.trim();
+      if (!playerName) {
+        document.getElementById("status").innerText = "Please enter your name first";
+        document.getElementById("nameInputSection").style.display = "block";
+        return;
+      }
+      
+      socket.emit("pick-team", {
+        roomId: currentRoom,
+        teamCode,
+        playerName: playerName
+      });
+    }
+
+    function lockTeams() {
+      if (!currentRoom) {
+        document.getElementById("status").innerText = "Please create or join a room first";
+        return;
+      }
+      socket.emit("lock-teams", { roomId: currentRoom });
+    }
+
+    function startAuction() {
+      if (!currentRoom) {
+        document.getElementById("status").innerText = "Please create or join a room first";
+        return;
+      }
+      socket.emit("start-auction", { roomId: currentRoom });
+    }
+
+    socket.on("room-created", (data) => {
+      currentRoom = data.roomId;
+      isHost = data.isHost;
+      document.getElementById("roomInput").value = currentRoom;
+      document.getElementById("nameInputSection").style.display = "block";
+      document.getElementById("status").innerText =
+        "Room created: " + currentRoom + " - Enter your name and select a team below!";
+      // Teams will be sent via joined-room event
+    });
+
+    socket.on("joined-room", (data) => {
+      isHost = data.isHost;
+      teamsLocked = data.teamsLocked;
+      allTeams = data.teams || [];
+      renderTeams(data.teams);
+      updateUI();
+      updateTeamsOverview(data.teams);
+      if (teamsLocked) {
+        showRules();
+        document.getElementById("teamsOverview").style.display = "block";
+      }
+      document.getElementById("status").innerText = 
+        "Joined room: " + currentRoom;
+      
+      // Show name input if not locked
+      if (!teamsLocked) {
+        document.getElementById("nameInputSection").style.display = "block";
+      }
+      
+      // If auction already started, get state
+      if (auctionStarted) {
+        socket.emit("get-auction-state", { roomId: currentRoom });
+      }
+    });
+
+    socket.on("teams-updated", (data) => {
+      teamsLocked = data.teamsLocked || false;
+      allTeams = data.teams || [];
+      renderTeams(data.teams);
+      updateUI();
+      updateTeamsOverview(data.teams);
+      if (teamsLocked) {
+        document.getElementById("teamsOverview").style.display = "block";
+      }
+      if (auctionStarted) {
+        updateMyTeam();
+        updateAllTeams();
+      }
+    });
+
+    socket.on("teams-locked", (data) => {
+      teamsLocked = true;
+      allTeams = data.teams || [];
+      renderTeams(data.teams);
+      updateUI();
+      
+      // Show rules
+      const rulesSection = document.getElementById("rulesSection");
+      if (rulesSection) {
+        rulesSection.style.display = "block";
+        // Move rules to top if not already there
+        const teamSelection = document.getElementById("teamSelectionSection");
+        if (teamSelection && rulesSection.parentNode !== teamSelection) {
+          teamSelection.insertBefore(rulesSection, teamSelection.firstChild);
+        }
+      }
+      
+      // Show teams overview
+      const teamsOverview = document.getElementById("teamsOverview");
+      if (teamsOverview) {
+        teamsOverview.style.display = "block";
+        updateTeamsOverview(data.teams);
+      }
+      
+      // Hide name input
+      const nameInput = document.getElementById("nameInputSection");
+      if (nameInput) {
+        nameInput.style.display = "none";
+      }
+      
+      document.getElementById("status").innerText = 
+        "Teams locked! Please read the auction rules above.";
+      document.getElementById("status").style.background = "white";
+      document.getElementById("status").style.borderLeftColor = "#007AFF";
+    });
+
+    function updateUI() {
+      const lockSection = document.getElementById("lockSection");
+      const lockButton = document.getElementById("lockButton");
+      const startAuctionButton = document.getElementById("startAuctionButton");
+      
+      if (isHost && !teamsLocked) {
+        lockSection.style.display = "block";
+        lockButton.disabled = false;
+      } else {
+        lockSection.style.display = "none";
+      }
+
+      // Show start auction button only to host after teams are locked
+      if (isHost && teamsLocked) {
+        startAuctionButton.style.display = "block";
+      } else {
+        startAuctionButton.style.display = "none";
+      }
+    }
+
+    function showRules() {
+      const rulesSection = document.getElementById("rulesSection");
+      if (rulesSection) {
+        rulesSection.style.display = "block";
+        
+        // Scroll to rules section smoothly
+        setTimeout(() => {
+          rulesSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 100);
+      }
+    }
+
+    function renderTeams(teams) {
+      const ul = document.getElementById("teams");
+      ul.innerHTML = "";
+
+      // Find which team is selected by current user
+      mySelectedTeam = teams.find(t => t.socketId === socket.id)?.code || null;
+
+      teams.forEach(t => {
+        const li = document.createElement("li");
+        
+        // Show team name with white text (since background will be colored)
+        let teamNameSpan = `<span style="color: ${t.textColor || '#ffffff'}; font-weight: 600;">${t.name || t.code}</span>`;
+        let playerInfo = "";
+        if (t.playerName) {
+          playerInfo = ` <span style="color: ${t.textColor || '#ffffff'}; font-weight: normal; opacity: 0.9;">(${t.playerName})</span>`;
+        } else if (t.owner === "AI" && teamsLocked) {
+          playerInfo = ` <span style="color: ${t.textColor || '#ffffff'}; font-weight: normal; font-style: italic; opacity: 0.8;">(AI)</span>`;
+        }
+        li.innerHTML = teamNameSpan + playerInfo;
+        
+        // Apply team colors to background and border - always use team colors
+        li.style.backgroundColor = t.color || "#f5f5f7";
+        li.style.color = t.textColor || "#1d1d1f";
+        li.style.borderColor = t.color || "#e5e5ea";
+
+        // If teams are locked, disable all interactions
+        if (teamsLocked) {
+          li.style.cursor = "default";
+          if (t.socketId === socket.id) {
+            li.classList.add("selected");
+            // Keep team color but add highlight border
+            li.style.borderColor = "#ffffff";
+            li.style.borderWidth = "3px";
+            li.style.boxShadow = "0 0 0 2px #007AFF, 0 6px 20px rgba(0,0,0,0.3)";
+          } else if (t.owner === "HUMAN") {
+            li.style.opacity = "0.7";
+          }
+        } else {
+          // If available (AI) or selected by current user, make it clickable
+          if (t.owner === "AI" || t.socketId === socket.id) {
+            li.classList.add("available");
+          li.onclick = () => pickTeam(t.code);
+            
+            // If selected by current user, highlight it
+            if (t.socketId === socket.id) {
+              li.classList.add("selected");
+              // Keep team color but add highlight border
+              li.style.borderColor = "#ffffff";
+              li.style.borderWidth = "3px";
+              li.style.boxShadow = "0 0 0 2px #007AFF, 0 6px 20px rgba(0,0,0,0.3)";
+            }
+          } else {
+            // Team taken by someone else - not clickable, dimmed
+            li.style.opacity = "0.6";
+            li.style.cursor = "not-allowed";
+          }
+        }
+        
+        ul.appendChild(li);
+      });
+    }
+
+    socket.on("auction-started", (data) => {
+      auctionStarted = true;
+      allTeams = data.teams || [];
+      updateMyTeam();
+      updateTeamsOverview(allTeams);
+      
+      // Hide team selection, show auction interface
+      document.getElementById("teamSelectionSection").classList.add("hidden");
+      document.getElementById("auctionInterface").style.display = "grid";
+      
+      // Show teams overview in sidebar during auction
+      document.getElementById("teamsOverview").style.display = "none"; // Hide from team selection, will show in sidebar
+      
+      // Request current auction state
+      socket.emit("get-auction-state", { roomId: currentRoom });
+    });
+
+    socket.on("auction-state", (data) => {
+      currentPlayer = data.currentPlayer;
+      currentBid = data.currentBid;
+      currentBidder = data.currentBidder;
+      timer = data.timer || 0;
+      allTeams = data.teams || [];
+      
+      updateAuctionDisplay();
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
+      updateProgress(data.playerIndex, data.totalPlayers);
+      startTimer();
+    });
+
+    socket.on("new-player", (data) => {
+      currentPlayer = data.currentPlayer;
+      currentBid = null;
+      currentBidder = null;
+      timer = data.timer || 15;
+      allTeams = data.teams || [];
+      
+      updateAuctionDisplay();
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
+      updateProgress(data.playerIndex, data.totalPlayers);
+      startTimer();
+      
+      addActivityLog(`New player: ${data.currentPlayer.name}`, 'bid');
+    });
+
+    socket.on("bid-update", (data) => {
+      currentBid = data.currentBid;
+      currentBidder = data.currentBidder;
+      timer = data.timer || 10;
+      allTeams = data.teams || [];
+      
+      updateAuctionDisplay();
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
+      
+      if (currentBidder) {
+        addActivityLog(`${data.currentBidder} bid ₹${data.currentBid} Cr`, 'bid');
+      }
+    });
+
+    socket.on("timer-update", (data) => {
+      timer = data.timer || 0;
+      updateTimerDisplay();
+    });
+
+    socket.on("player-sold", (data) => {
+      allTeams = data.teams || [];
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
+      addActivityLog(`${data.player.name} SOLD to ${data.team} for ₹${data.price} Cr`, 'sold');
+    });
+
+    socket.on("player-unsold", (data) => {
+      allTeams = data.teams || [];
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
+      addActivityLog(`${data.player.name} UNSOLD`, 'unsold');
+    });
+
+    socket.on("auction-ended", (data) => {
+      allTeams = data.teams || [];
+      updateMyTeam();
+      updateAllTeams();
+      addActivityLog("Auction has ended!", 'sold');
+      document.getElementById("placeBidButton").disabled = true;
+    });
+
+    function updateAuctionDisplay() {
+      if (!currentPlayer) {
+        document.getElementById("playerName").textContent = "Waiting for next player...";
+        document.getElementById("playerDetails").innerHTML = "";
+        return;
+      }
+
+      document.getElementById("playerName").textContent = currentPlayer.name;
+      
+      const details = `
+        <div class="player-detail-item">
+          <strong>Role</strong>
+          ${currentPlayer.role}
+        </div>
+        <div class="player-detail-item">
+          <strong>Nationality</strong>
+          ${currentPlayer.nationality}
+        </div>
+        <div class="player-detail-item">
+          <strong>Base Price</strong>
+          ₹${currentPlayer.basePrice} Cr
+        </div>
+        <div class="player-detail-item">
+          <strong>Rating</strong>
+          ${currentPlayer.rating}/100
+        </div>
+      `;
+      document.getElementById("playerDetails").innerHTML = details;
+
+      // Update current bid - show base price if no bids
+      if (currentBid) {
+        document.getElementById("currentBidAmount").textContent = `₹${currentBid.toFixed(2)} Cr`;
+        document.getElementById("currentBidder").textContent = `Leading: ${currentBidder}`;
+      } else {
+        document.getElementById("currentBidAmount").textContent = `₹${currentPlayer.basePrice.toFixed(2)} Cr`;
+        document.getElementById("currentBidder").textContent = "Base Price - No bids yet";
+      }
+
+      // Update bid input
+      updateBidInput();
+    }
+
+    function updateBidInput() {
+      const bidInput = document.getElementById("bidInput");
+      const minBid = currentBid ? currentBid + getMinIncrement(currentBid) : currentPlayer.basePrice;
+      bidInput.min = minBid;
+      bidInput.placeholder = `Min: ₹${minBid.toFixed(2)} Cr`;
+      document.getElementById("minBidInfo").textContent = `Minimum bid: ₹${minBid.toFixed(2)} Cr`;
+      
+      // Update quick bid buttons
+      updateQuickBidButtons(minBid);
+      
+      // Enable/disable bid button based on my team
+      const bidButton = document.getElementById("placeBidButton");
+      if (!myTeam || myTeam.code !== currentBidder) {
+        bidButton.disabled = false;
+      }
+    }
+
+    function updateQuickBidButtons(minBid) {
+      const container = document.getElementById("quickBidButtons");
+      container.innerHTML = "";
+      
+      const increment = getMinIncrement(minBid);
+      const buttons = [
+        { label: `+${increment.toFixed(2)}`, value: minBid },
+        { label: `+${(increment * 2).toFixed(2)}`, value: minBid + increment },
+        { label: `+${(increment * 3).toFixed(2)}`, value: minBid + (increment * 2) }
+      ];
+      
+      buttons.forEach(btn => {
+        const button = document.createElement("button");
+        button.className = "quick-bid-btn";
+        button.textContent = btn.label;
+        button.onclick = () => {
+          document.getElementById("bidInput").value = btn.value.toFixed(2);
+          placeBid();
+        };
+        container.appendChild(button);
+      });
+    }
+
+    function getMinIncrement(currentBid) {
+      if (currentBid < 1) return 0.10;
+      if (currentBid < 5) return 0.25;
+      if (currentBid < 10) return 0.50;
+      if (currentBid < 20) return 1.00;
+      return 2.00;
+    }
+
+    function updateTimerDisplay() {
+      const timerDisplay = document.getElementById("timerDisplay");
+      timerDisplay.textContent = timer;
+      
+      timerDisplay.classList.remove("warning", "danger");
+      if (timer <= 5) {
+        timerDisplay.classList.add("danger");
+      } else if (timer <= 8) {
+        timerDisplay.classList.add("warning");
+      }
+    }
+
+    let timerInterval = null;
+    function startTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        if (timer > 0) {
+          timer--;
+          updateTimerDisplay();
+        } else {
+          clearInterval(timerInterval);
+        }
+      }, 1000);
+    }
+
+    function placeBid() {
+      if (!currentRoom || !currentPlayer) return;
+      
+      const bidInput = document.getElementById("bidInput");
+      const bidAmount = parseFloat(bidInput.value);
+      
+      if (!bidAmount || bidAmount <= 0) {
+        alert("Please enter a valid bid amount");
+        return;
+      }
+
+      socket.emit("place-bid", {
+        roomId: currentRoom,
+        bidAmount: bidAmount
+      });
+
+      bidInput.value = "";
+    }
+
+    function updateMyTeam() {
+      if (!mySelectedTeam) {
+        document.getElementById("myTeamCard").style.display = "none";
+        return;
+      }
+
+      myTeam = allTeams.find(t => t.code === mySelectedTeam);
+      if (!myTeam) return;
+
+      document.getElementById("myTeamCard").style.display = "block";
+      
+      const purse = myTeam.purse !== undefined ? myTeam.purse : 100;
+      const squadSize = myTeam.squadSize !== undefined ? myTeam.squadSize : 0;
+      const overseasCount = myTeam.overseasCount !== undefined ? myTeam.overseasCount : 0;
+      const squad = myTeam.squad || [];
+      
+      const stats = `
+        <div class="team-stat">
+          <span class="team-stat-label">Purse Remaining</span>
+          <span class="team-stat-value" style="color: #1d1d1f;">₹${purse.toFixed(2)} Cr</span>
+        </div>
+        <div class="team-stat">
+          <span class="team-stat-label">Squad Size</span>
+          <span class="team-stat-value">${squadSize} / 15</span>
+        </div>
+        <div class="team-stat">
+          <span class="team-stat-label">Overseas Players</span>
+          <span class="team-stat-value">${overseasCount} / 6</span>
+        </div>
+        <div class="team-stat">
+          <span class="team-stat-label">Players Bought</span>
+          <span class="team-stat-value">${squad.length}</span>
+        </div>
+      `;
+      document.getElementById("myTeamStats").innerHTML = stats;
+      
+      // Show full squad
+      const squadContainer = document.getElementById("myTeamSquad");
+      if (squad.length > 0) {
+        squadContainer.innerHTML = `
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e5ea;">
+            <div style="font-weight: 600; margin-bottom: 10px; color: #1d1d1f;">My Squad (${squad.length})</div>
+            <div class="players-list" style="max-height: 400px; overflow-y: auto;">
+              ${squad.map(p => `
+                <div class="player-item">
+                  <div>
+                    <span class="player-name">${p.name}</span>
+                    <div style="font-size: 11px; color: #8e8e93; margin-top: 2px;">${p.role} • ${p.nationality}</div>
+                  </div>
+                  <span class="player-price">₹${p.price.toFixed(2)} Cr</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      } else {
+        squadContainer.innerHTML = `
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e5ea; text-align: center; color: #8e8e93; font-size: 12px;">
+            No players purchased yet
+          </div>
+        `;
+      }
+    }
+    
+    window.toggleTeamExpand = function(teamCode) {
+      if (expandedTeams.includes(teamCode)) {
+        expandedTeams = expandedTeams.filter(t => t !== teamCode);
+      } else {
+        expandedTeams.push(teamCode);
+      }
+      updateAllTeams();
+    };
+
+    function updateAllTeams() {
+      const container = document.getElementById("allTeamsList");
+      if (!container) return;
+      
+      container.innerHTML = "";
+
+      allTeams.forEach(team => {
+        const row = document.createElement("div");
+        row.className = "team-row";
+        
+        const isMyTeam = team.code === mySelectedTeam;
+        if (isMyTeam) {
+          row.style.background = "#f0f7ff";
+          row.style.borderColor = "#007AFF";
+          row.style.borderWidth = "2px";
+        }
+
+        const ownerName = team.playerName ? `<div style="font-size: 11px; color: #8e8e93; margin-top: 3px;">${team.playerName}</div>` : 
+                         team.owner === "AI" ? `<div style="font-size: 11px; color: #8e8e93; margin-top: 3px; font-style: italic;">AI Controlled</div>` : "";
+
+        // Handle teams that might not have auction data yet
+        const purse = team.purse !== undefined ? team.purse : 100;
+        const squadSize = team.squadSize !== undefined ? team.squadSize : 0;
+        const overseasCount = team.overseasCount !== undefined ? team.overseasCount : 0;
+        const squad = team.squad || [];
+
+        const teamId = `team-${team.code}`;
+        const isExpanded = expandedTeams && expandedTeams.includes(team.code);
+        
+        row.innerHTML = `
+          <div class="team-row-header" onclick="toggleTeamExpand('${team.code}')">
+            <div>
+              <span class="team-name" style="color: ${team.color || '#1d1d1f'}; font-size: 13px; font-weight: 600;">${team.name}</span>
+              ${ownerName}
+            </div>
+            <div style="text-align: right;">
+              <div class="team-purse" style="font-size: 13px;">₹${purse.toFixed(2)} Cr</div>
+              <div style="font-size: 11px; color: #8e8e93; margin-top: 2px;">${squad.length} players</div>
+            </div>
+          </div>
+          ${isExpanded && squad.length > 0 ? `
+            <div class="players-list" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e5ea;">
+              ${squad.slice(-2).reverse().map(p => `
+                <div class="player-item" style="padding: 5px 8px; margin: 3px 0;">
+                  <span class="player-name" style="font-size: 11px;">${p.name}</span>
+                  <span class="player-price" style="font-size: 11px;">₹${p.price.toFixed(2)} Cr</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        `;
+        
+        if (isExpanded) {
+          row.classList.add("expanded");
+        }
+        
+        row.setAttribute("data-team", team.code);
+        container.appendChild(row);
+      });
+    }
+
+    function updateTeamsOverview(teams) {
+      if (!teamsLocked) return;
+      
+      const container = document.getElementById("teamsList");
+      if (!container) return;
+      
+      container.innerHTML = "";
+
+      teams.forEach(team => {
+        const card = document.createElement("div");
+        card.className = "team-overview-card";
+        
+        const ownerInfo = team.playerName ? 
+          `<div class="team-owner-name">${team.playerName}</div>` : 
+          `<div class="team-ai-label">AI Controlled</div>`;
+
+        // Handle teams that might not have auction data yet
+        const purse = team.purse !== undefined ? team.purse : 100;
+        const squadSize = team.squadSize !== undefined ? team.squadSize : 0;
+        const overseasCount = team.overseasCount !== undefined ? team.overseasCount : 0;
+        const squad = team.squad || [];
+
+        card.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span class="team-name" style="color: ${team.color || '#1d1d1f'}; font-weight: 600;">${team.name}</span>
+            <span style="color: #1d1d1f; font-weight: 600; font-size: 14px;">₹${purse.toFixed(2)} Cr</span>
+          </div>
+          ${ownerInfo}
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; font-size: 12px; color: #8e8e93;">
+            <span>Squad: ${squadSize}/15</span>
+            <span>Overseas: ${overseasCount}/6</span>
+            <span>Bought: ${squad.length}</span>
+          </div>
+          ${squad.length > 0 ? `
+            <div class="players-list">
+              ${squad.map(p => `
+                <div class="player-item">
+                  <span class="player-name">${p.name}</span>
+                  <span class="player-price">₹${p.price.toFixed(2)} Cr</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : '<div style="text-align: center; color: #8e8e93; font-size: 12px; margin-top: 10px; padding: 10px;">No players purchased yet</div>'}
+        `;
+        
+        container.appendChild(card);
+      });
+    }
+
+    function switchTab(tabName) {
+      // Update tab buttons
+      document.getElementById("teamsTab").classList.toggle("active", tabName === "teams");
+      document.getElementById("activityTab").classList.toggle("active", tabName === "activity");
+      
+      // Update tab content
+      document.getElementById("teamsTabContent").classList.toggle("active", tabName === "teams");
+      document.getElementById("activityTabContent").classList.toggle("active", tabName === "activity");
+    }
+
+    function addActivityLog(message, type) {
+      const log = document.getElementById("activityLog");
+      if (!log) return;
+      
+      const item = document.createElement("div");
+      item.className = `activity-item ${type}`;
+      item.textContent = message;
+      log.insertBefore(item, log.firstChild);
+      
+      // Keep only last 20 items
+      while (log.children.length > 20) {
+        log.removeChild(log.lastChild);
+      }
+    }
+
+    // Update progress on new player
+    function updateProgress(playerIndex, totalPlayers) {
+      const progress = ((playerIndex || 0) / (totalPlayers || 1)) * 100;
+      document.getElementById("auctionProgress").style.width = `${progress}%`;
+      document.getElementById("progressText").textContent = `Player ${playerIndex || 0} of ${totalPlayers || 0}`;
+    }
+
+    socket.on("error", (msg) => {
+      document.getElementById("status").innerText = "Error: " + msg;
+      document.getElementById("status").style.background = "#fff5f5";
+      document.getElementById("status").style.borderLeftColor = "#FF3B30";
+      
+      // Reset error styling after 3 seconds
+      setTimeout(() => {
+        document.getElementById("status").style.background = "white";
+        document.getElementById("status").style.borderLeftColor = "#007AFF";
+      }, 3000);
+    });
+  </script>
+</body>
+</html>
