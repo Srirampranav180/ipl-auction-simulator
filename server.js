@@ -665,27 +665,54 @@ function endAuction(roomId) {
     delete auctionTimers[roomId];
   }
 
-  // Calculate final statistics
+  // Calculate final statistics and determine winner
+  const teamScores = auctionEngine.calculateTeamScores(room.teams);
+  
   const finalStats = {
     totalPlayersAuctioned: room.playerIndex,
     totalPlayersSold: room.teams.reduce((sum, team) => sum + team.squad.length, 0),
-    teams: getTeamsForClient(room.teams).map(team => ({
-      ...team,
-      totalSpent: auctionEngine.STARTING_PURSE - team.purse,
-      playersBought: team.squad.length,
-      averagePrice: team.squad.length > 0 
-        ? (auctionEngine.STARTING_PURSE - team.purse) / team.squad.length 
-        : 0
-    }))
+    teams: getTeamsForClient(room.teams).map(team => {
+      const scoredTeam = teamScores.teams.find(t => t.code === team.code);
+      return {
+        ...team,
+        totalSpent: auctionEngine.STARTING_PURSE - team.purse,
+        playersBought: team.squad.length,
+        averagePrice: team.squad.length > 0 
+          ? (auctionEngine.STARTING_PURSE - team.purse) / team.squad.length 
+          : 0,
+        score: scoredTeam ? scoredTeam.score : 0,
+        ratingScore: scoredTeam ? scoredTeam.ratingScore : 0,
+        balanceScore: scoredTeam ? scoredTeam.balanceScore : 0,
+        valueScore: scoredTeam ? scoredTeam.valueScore : 0,
+        disqualified: scoredTeam ? scoredTeam.disqualified : true,
+        compliance: scoredTeam ? scoredTeam.compliance : { compliant: false, violations: ["Team data not found"] }
+      };
+    }),
+    winner: teamScores.winner ? {
+      code: teamScores.winner.code,
+      name: teamScores.winner.name,
+      playerName: teamScores.winner.playerName,
+      score: teamScores.winner.score
+    } : null,
+    rankings: teamScores.rankings
   };
 
   console.log(`Auction ended for room: ${roomId}`);
   console.log(`Final stats: ${finalStats.totalPlayersSold} players sold across ${finalStats.teams.length} teams`);
+  if (finalStats.winner) {
+    console.log(`Winner: ${finalStats.winner.name} (${finalStats.winner.code}) with score ${finalStats.winner.score}`);
+  } else {
+    console.log(`No winner: All teams disqualified`);
+  }
   
   io.to(roomId).emit("auction-ended", {
     teams: finalStats.teams,
     stats: finalStats,
-    message: "Auction has ended!"
+    winner: finalStats.winner,
+    rankings: finalStats.rankings,
+    message: finalStats.winner 
+      ? `Auction Complete! Winner: ${finalStats.winner.name}` 
+      : "Auction Complete! (No winner - all teams disqualified)"
   });
 }
 
