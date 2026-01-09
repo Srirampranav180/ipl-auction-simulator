@@ -253,6 +253,12 @@ io.on("connection", (socket) => {
       return;
     }
 
+    // Check if team has skipped this player
+    if (room.skippedTeams && room.skippedTeams.includes(team.code)) {
+      socket.emit("error", "You have skipped this player. Cannot bid.");
+      return;
+    }
+
     // Validate bid - must be at least base price if no current bid
     const minBid = room.currentBid || room.currentPlayer.basePrice;
     const validation = auctionEngine.validateBid(
@@ -280,6 +286,52 @@ io.on("connection", (socket) => {
       currentBid: room.currentBid,
       currentBidder: room.currentBidder,
       timer: room.timer,
+      teams: getTeamsForClient(room.teams),
+      skippedTeams: room.skippedTeams || []
+    });
+  });
+
+  // Skip player
+  socket.on("skip-player", ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room || !room.auctionStarted) {
+      socket.emit("error", "Auction not started");
+      return;
+    }
+
+    if (!room.currentPlayer) {
+      socket.emit("error", "No active player");
+      return;
+    }
+
+    // Find user's team
+    const team = room.teams.find(t => t.socketId === socket.id);
+    if (!team) {
+      socket.emit("error", "You don't have a team selected");
+      return;
+    }
+
+    // Initialize skippedTeams array if it doesn't exist
+    if (!room.skippedTeams) {
+      room.skippedTeams = [];
+    }
+
+    // Check if already skipped
+    if (room.skippedTeams.includes(team.code)) {
+      socket.emit("error", "You have already skipped this player");
+      return;
+    }
+
+    // Add team to skipped list
+    room.skippedTeams.push(team.code);
+    console.log(`Team ${team.code} skipped ${room.currentPlayer.name}`);
+
+    // Broadcast skip update
+    io.to(roomId).emit("player-skipped", {
+      teamCode: team.code,
+      teamName: team.name,
+      playerName: room.currentPlayer.name,
+      skippedTeams: room.skippedTeams,
       teams: getTeamsForClient(room.teams)
     });
   });
@@ -300,7 +352,8 @@ io.on("connection", (socket) => {
         timer: room.timer,
         teams: getTeamsForClient(room.teams),
         playerIndex: room.playerIndex,
-        totalPlayers: room.totalPlayers
+        totalPlayers: room.totalPlayers,
+        skippedTeams: room.skippedTeams || []
       });
     }
   });
@@ -347,6 +400,7 @@ function initializeAuction(room) {
   room.currentBid = null;
   room.currentBidder = null;
   room.timer = null;
+  room.skippedTeams = []; // Track teams that skipped current player
 }
 
   // Start auction for current player
@@ -365,6 +419,7 @@ function startPlayerAuction(roomId) {
   room.currentBid = null;
   room.currentBidder = null;
   room.timer = 15; // Start with 15 seconds
+  room.skippedTeams = []; // Reset skipped teams for new player
 
   console.log(`Auctioning: ${room.currentPlayer.name} (${room.currentPlayer.role}, ${room.currentPlayer.nationality}) - Base Price: ₹${room.currentPlayer.basePrice} Cr`);
 
@@ -377,7 +432,8 @@ function startPlayerAuction(roomId) {
     timer: room.timer,
     teams: getTeamsForClient(room.teams),
     playerIndex: room.playerIndex + 1,
-    totalPlayers: room.totalPlayers
+    totalPlayers: room.totalPlayers,
+    skippedTeams: room.skippedTeams
   });
 
   // Start timer
@@ -411,7 +467,8 @@ function startTimer(roomId) {
     io.to(roomId).emit("timer-update", {
       timer: room.timer,
       currentBid: room.currentBid,
-      currentBidder: room.currentBidder
+      currentBidder: room.currentBidder,
+      skippedTeams: room.skippedTeams || []
     });
 
     // Timer expired

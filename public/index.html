@@ -321,6 +321,21 @@
       box-shadow: none;
     }
     
+    #skipButton {
+      background: #8e8e93;
+      color: white;
+    }
+    
+    #skipButton:hover:not(:disabled) {
+      background: #6b7280;
+    }
+    
+    #skipButton:disabled {
+      background: #d1d1d6;
+      color: #8e8e93;
+      cursor: not-allowed;
+    }
+    
     .quick-bid-buttons {
       display: flex;
       gap: 8px;
@@ -684,9 +699,11 @@
           <div class="bid-input-group">
             <input type="number" id="bidInput" placeholder="Enter bid" step="0.1" min="0" onkeypress="if(event.key==='Enter') placeBid()">
             <button id="placeBidButton" onclick="placeBid()">Place Bid</button>
+            <button id="skipButton" onclick="skipPlayer()" style="background: #8e8e93; padding: 12px 24px;">Skip</button>
           </div>
           <div class="quick-bid-buttons" id="quickBidButtons"></div>
           <div style="text-align: center; margin-top: 10px; font-size: 12px; color: #8e8e93;" id="minBidInfo"></div>
+          <div style="text-align: center; margin-top: 8px; font-size: 12px; color: #8e8e93; min-height: 20px;" id="skipStatus"></div>
         </div>
 
         <div class="progress-bar" style="margin-top: 30px;">
@@ -748,6 +765,7 @@
     let allTeams = [];
     let myTeam = null;
     let expandedTeams = [];
+    let skippedTeams = []; // Teams that skipped current player
 
     function createRoom() {
       socket.emit("create-room");
@@ -1007,12 +1025,14 @@
       currentBidder = data.currentBidder;
       timer = data.timer || 0;
       allTeams = data.teams || [];
+      skippedTeams = data.skippedTeams || [];
       
       updateAuctionDisplay();
       updateMyTeam();
       updateAllTeams();
       updateTeamsOverview(allTeams);
       updateProgress(data.playerIndex, data.totalPlayers);
+      updateSkipButton();
       startTimer();
     });
 
@@ -1022,12 +1042,14 @@
       currentBidder = null;
       timer = data.timer || 15;
       allTeams = data.teams || [];
+      skippedTeams = data.skippedTeams || []; // Reset skipped teams for new player
       
       updateAuctionDisplay();
       updateMyTeam();
       updateAllTeams();
       updateTeamsOverview(allTeams);
       updateProgress(data.playerIndex, data.totalPlayers);
+      updateSkipButton();
       startTimer();
       
       addActivityLog(`New player: ${data.currentPlayer.name}`, 'bid');
@@ -1038,11 +1060,13 @@
       currentBidder = data.currentBidder;
       timer = data.timer || 10;
       allTeams = data.teams || [];
+      skippedTeams = data.skippedTeams || [];
       
       updateAuctionDisplay();
       updateMyTeam();
       updateAllTeams();
       updateTeamsOverview(allTeams);
+      updateSkipButton();
       
       if (currentBidder) {
         addActivityLog(`${data.currentBidder} bid ₹${data.currentBid} Cr`, 'bid');
@@ -1051,7 +1075,15 @@
 
     socket.on("timer-update", (data) => {
       timer = data.timer || 0;
+      skippedTeams = data.skippedTeams || [];
       updateTimerDisplay();
+      updateSkipButton();
+    });
+
+    socket.on("player-skipped", (data) => {
+      skippedTeams = data.skippedTeams || [];
+      updateSkipButton();
+      addActivityLog(`${data.teamName} skipped ${data.playerName}`, 'unsold');
     });
 
     socket.on("player-sold", (data) => {
@@ -1144,6 +1176,7 @@
 
       // Update bid input
       updateBidInput();
+      updateSkipButton();
     }
 
     function updateBidInput() {
@@ -1221,8 +1254,56 @@
       }, 1000);
     }
 
+    function skipPlayer() {
+      if (!currentRoom || !currentPlayer || !myTeam) return;
+      
+      // Check if already skipped
+      if (skippedTeams.includes(myTeam.code)) {
+        return;
+      }
+      
+      socket.emit("skip-player", { roomId: currentRoom });
+    }
+
+    function updateSkipButton() {
+      const skipButton = document.getElementById("skipButton");
+      const placeBidButton = document.getElementById("placeBidButton");
+      const skipStatus = document.getElementById("skipStatus");
+      
+      if (!skipButton || !myTeam || !currentPlayer) return;
+      
+      const hasSkipped = skippedTeams.includes(myTeam.code);
+      
+      if (hasSkipped) {
+        skipButton.disabled = true;
+        skipButton.textContent = "Skipped";
+        skipButton.style.background = "#d1d1d6";
+        skipButton.style.color = "#8e8e93";
+        placeBidButton.disabled = true;
+        skipStatus.textContent = "You have skipped this player";
+        skipStatus.style.color = "#8e8e93";
+      } else {
+        skipButton.disabled = false;
+        skipButton.textContent = "Skip";
+        skipButton.style.background = "#8e8e93";
+        skipButton.style.color = "white";
+        skipStatus.textContent = "";
+        
+        // Re-enable bid button if not leading bidder
+        if (myTeam && myTeam.code !== currentBidder) {
+          placeBidButton.disabled = false;
+        }
+      }
+    }
+
     function placeBid() {
       if (!currentRoom || !currentPlayer) return;
+      
+      // Check if team has skipped
+      if (myTeam && skippedTeams.includes(myTeam.code)) {
+        alert("You have skipped this player. Cannot place a bid.");
+        return;
+      }
       
       const bidInput = document.getElementById("bidInput");
       const bidAmount = parseFloat(bidInput.value);
