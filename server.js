@@ -300,6 +300,13 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Leave room
+  socket.on("leave-room", ({ roomId }) => {
+    socket.leave(roomId);
+    console.log("User", socket.id, "left room:", roomId);
+    socket.emit("left-room");
+  });
+
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id);
     // Handle disconnect - team temporarily switches to AI
@@ -413,7 +420,14 @@ function startTimer(roomId) {
 // Handle player sold/unsold
 function handlePlayerSold(roomId) {
   const room = rooms[roomId];
-  if (!room || !room.currentPlayer) return;
+  if (!room || !room.currentPlayer || !room.auctionStarted) {
+    // Auction might have ended, cleanup
+    if (auctionTimers[roomId]) {
+      clearInterval(auctionTimers[roomId]);
+      delete auctionTimers[roomId];
+    }
+    return;
+  }
 
   if (room.currentBid && room.currentBidder) {
     // SOLD
@@ -447,10 +461,28 @@ function handlePlayerSold(roomId) {
     });
   }
 
+  // Clear current player before moving to next
+  room.currentPlayer = null;
+  room.currentBid = null;
+  room.currentBidder = null;
+
   // Move to next player
   room.playerIndex++;
+  
+  // Check if we should end before starting next player
+  if (auctionEngine.shouldEndAuction(room.teams) || room.playerIndex >= room.playerPool.length) {
+    setTimeout(() => {
+      endAuction(roomId);
+    }, 2000);
+    return;
+  }
+
+  // Start next player auction
   setTimeout(() => {
-    startPlayerAuction(roomId);
+    // Double-check auction is still active
+    if (room && room.auctionStarted) {
+      startPlayerAuction(roomId);
+    }
   }, 2000);
 }
 
@@ -559,14 +591,38 @@ function endAuction(roomId) {
   const room = rooms[roomId];
   if (!room) return;
 
+  // Stop auction
+  room.auctionStarted = false;
+  room.currentPlayer = null;
+  room.currentBid = null;
+  room.currentBidder = null;
+
+  // Clear timer
   if (auctionTimers[roomId]) {
     clearInterval(auctionTimers[roomId]);
     delete auctionTimers[roomId];
   }
 
+  // Calculate final statistics
+  const finalStats = {
+    totalPlayersAuctioned: room.playerIndex,
+    totalPlayersSold: room.teams.reduce((sum, team) => sum + team.squad.length, 0),
+    teams: getTeamsForClient(room.teams).map(team => ({
+      ...team,
+      totalSpent: auctionEngine.STARTING_PURSE - team.purse,
+      playersBought: team.squad.length,
+      averagePrice: team.squad.length > 0 
+        ? (auctionEngine.STARTING_PURSE - team.purse) / team.squad.length 
+        : 0
+    }))
+  };
+
   console.log(`Auction ended for room: ${roomId}`);
+  console.log(`Final stats: ${finalStats.totalPlayersSold} players sold across ${finalStats.teams.length} teams`);
+  
   io.to(roomId).emit("auction-ended", {
-    teams: getTeamsForClient(room.teams),
+    teams: finalStats.teams,
+    stats: finalStats,
     message: "Auction has ended!"
   });
 }

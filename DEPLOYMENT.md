@@ -87,3 +87,4 @@ PORT=8080 HOST=0.0.0.0 node server.js
 3. Check console - it will show your local IP for LAN access
 4. Share that IP with others on your network!
 
+
