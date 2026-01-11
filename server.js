@@ -35,6 +35,7 @@ const IPL_TEAMS = [
 
 const rooms = {};
 const auctionTimers = {}; // roomId -> timer object
+const processingPlayers = {}; // roomId -> boolean (prevents duplicate processing)
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
@@ -280,6 +281,13 @@ io.on("connection", (socket) => {
 
     console.log(`Team ${team.code} bid ₹${bidAmount} Cr for ${room.currentPlayer.name}`);
 
+    // Restart timer to ensure it's properly reset
+    if (auctionTimers[roomId]) {
+      clearInterval(auctionTimers[roomId]);
+      delete auctionTimers[roomId];
+    }
+    startTimer(roomId);
+
     // Broadcast update
     io.to(roomId).emit("bid-update", {
       currentPlayer: room.currentPlayer,
@@ -406,10 +414,27 @@ function initializeAuction(room) {
   // Start auction for current player
 function startPlayerAuction(roomId) {
   const room = rooms[roomId];
-  if (!room || !room.auctionStarted) return;
+  if (!room || !room.auctionStarted) {
+    // Cleanup if auction not active
+    if (auctionTimers[roomId]) {
+      clearInterval(auctionTimers[roomId]);
+      delete auctionTimers[roomId];
+    }
+    delete processingPlayers[roomId];
+    return;
+  }
+
+  // Ensure no processing flag is set
+  delete processingPlayers[roomId];
 
   // Check if auction should end
   if (auctionEngine.shouldEndAuction(room.teams) || room.playerIndex >= room.playerPool.length) {
+    endAuction(roomId);
+    return;
+  }
+
+  // Ensure we have a valid player index
+  if (room.playerIndex >= room.playerPool.length) {
     endAuction(roomId);
     return;
   }
@@ -453,34 +478,47 @@ function startTimer(roomId) {
   // Clear existing timer
   if (auctionTimers[roomId]) {
     clearInterval(auctionTimers[roomId]);
+    delete auctionTimers[roomId];
   }
 
   auctionTimers[roomId] = setInterval(() => {
-    if (!room.currentPlayer) {
+    const currentRoom = rooms[roomId];
+    if (!currentRoom || !currentRoom.currentPlayer) {
       clearInterval(auctionTimers[roomId]);
+      delete auctionTimers[roomId];
       return;
     }
 
-    room.timer--;
+    currentRoom.timer--;
 
     // Broadcast timer update every second
     io.to(roomId).emit("timer-update", {
-      timer: room.timer,
-      currentBid: room.currentBid,
-      currentBidder: room.currentBidder,
-      skippedTeams: room.skippedTeams || []
+      timer: currentRoom.timer,
+      currentBid: currentRoom.currentBid,
+      currentBidder: currentRoom.currentBidder,
+      skippedTeams: currentRoom.skippedTeams || []
     });
 
     // Timer expired
-    if (room.timer <= 0) {
+    if (currentRoom.timer <= 0) {
       clearInterval(auctionTimers[roomId]);
-      handlePlayerSold(roomId);
+      delete auctionTimers[roomId];
+      // Use setTimeout to ensure timer is fully cleared before processing
+      setTimeout(() => {
+        handlePlayerSold(roomId);
+      }, 100);
     }
   }, 1000);
 }
 
 // Handle player sold/unsold
 function handlePlayerSold(roomId) {
+  // Prevent duplicate processing
+  if (processingPlayers[roomId]) {
+    console.log(`Already processing player for room ${roomId}, skipping...`);
+    return;
+  }
+
   const room = rooms[roomId];
   if (!room || !room.currentPlayer || !room.auctionStarted) {
     // Auction might have ended, cleanup
@@ -488,48 +526,67 @@ function handlePlayerSold(roomId) {
       clearInterval(auctionTimers[roomId]);
       delete auctionTimers[roomId];
     }
+    delete processingPlayers[roomId];
     return;
   }
 
-  if (room.currentBid && room.currentBidder) {
+  // Mark as processing
+  processingPlayers[roomId] = true;
+
+  // Store current player data before clearing
+  const currentPlayer = room.currentPlayer;
+  const currentBid = room.currentBid;
+  const currentBidder = room.currentBidder;
+
+  // Clear timer if still running
+  if (auctionTimers[roomId]) {
+    clearInterval(auctionTimers[roomId]);
+    delete auctionTimers[roomId];
+  }
+
+  if (currentBid && currentBidder) {
     // SOLD
-    const team = room.teams.find(t => t.code === room.currentBidder);
+    const team = room.teams.find(t => t.code === currentBidder);
     if (team) {
       team.squad.push({
-        ...room.currentPlayer,
-        price: room.currentBid
+        ...currentPlayer,
+        price: currentBid
       });
-      team.purse -= room.currentBid;
-      if (room.currentPlayer.isOverseas) {
+      team.purse -= currentBid;
+      if (currentPlayer.isOverseas) {
         team.overseasCount++;
       }
-      team.roleCount[room.currentPlayer.role] = (team.roleCount[room.currentPlayer.role] || 0) + 1;
+      team.roleCount[currentPlayer.role] = (team.roleCount[currentPlayer.role] || 0) + 1;
 
-      console.log(`SOLD: ${room.currentPlayer.name} to ${team.code} for ₹${room.currentBid} Cr`);
+      console.log(`SOLD: ${currentPlayer.name} to ${team.code} for ₹${currentBid} Cr`);
       
       io.to(roomId).emit("player-sold", {
-        player: room.currentPlayer,
+        player: currentPlayer,
         team: team.code,
-        price: room.currentBid,
+        price: currentBid,
         teams: getTeamsForClient(room.teams)
       });
     }
   } else {
     // UNSOLD
-    console.log(`UNSOLD: ${room.currentPlayer.name}`);
+    console.log(`UNSOLD: ${currentPlayer.name}`);
     io.to(roomId).emit("player-unsold", {
-      player: room.currentPlayer,
+      player: currentPlayer,
       teams: getTeamsForClient(room.teams)
     });
   }
 
-  // Clear current player before moving to next
+  // Clear current player state
   room.currentPlayer = null;
   room.currentBid = null;
   room.currentBidder = null;
+  room.skippedTeams = [];
 
   // Move to next player
   room.playerIndex++;
+  
+  // Clear processing flag
+  delete processingPlayers[roomId];
   
   // Check if we should end before starting next player
   if (auctionEngine.shouldEndAuction(room.teams) || room.playerIndex >= room.playerPool.length) {
@@ -541,8 +598,9 @@ function handlePlayerSold(roomId) {
 
   // Start next player auction
   setTimeout(() => {
-    // Double-check auction is still active
-    if (room && room.auctionStarted) {
+    // Get fresh room reference
+    const nextRoom = rooms[roomId];
+    if (nextRoom && nextRoom.auctionStarted) {
       startPlayerAuction(roomId);
     }
   }, 2000);
@@ -551,7 +609,10 @@ function handlePlayerSold(roomId) {
 // Process AI bids
 function processAIBids(roomId) {
   const room = rooms[roomId];
-  if (!room || !room.currentPlayer) return;
+  if (!room || !room.currentPlayer || !room.auctionStarted) return;
+
+  // Don't process if we're already processing a player sale
+  if (processingPlayers[roomId]) return;
 
   // Only process if no human has bid yet, or periodically
   const shouldBid = !room.currentBid || Math.random() < 0.3;
@@ -559,26 +620,40 @@ function processAIBids(roomId) {
   if (shouldBid) {
     room.teams.forEach(team => {
       if (team.owner === "AI" && team.socketId === null) {
+        // Check if team has skipped this player
+        if (room.skippedTeams && room.skippedTeams.includes(team.code)) {
+          return; // Skip this team
+        }
+
         const aiBid = calculateAIBid(team, room.currentPlayer, room.currentBid || room.currentPlayer.basePrice);
         if (aiBid) {
           // Simulate AI bid
           const currentPlayerId = room.currentPlayer.id;
           setTimeout(() => {
-            if (room.currentPlayer && room.currentPlayer.id === currentPlayerId) {
-              const validation = auctionEngine.validateBid(team, aiBid, room.currentBid || room.currentPlayer.basePrice, room.currentPlayer);
+            const currentRoom = rooms[roomId];
+            if (currentRoom && currentRoom.currentPlayer && currentRoom.currentPlayer.id === currentPlayerId && currentRoom.auctionStarted && !processingPlayers[roomId]) {
+              const validation = auctionEngine.validateBid(team, aiBid, currentRoom.currentBid || currentRoom.currentPlayer.basePrice, currentRoom.currentPlayer);
               if (validation.valid) {
-                room.currentBid = aiBid;
-                room.currentBidder = team.code;
-                room.timer = 10;
+                currentRoom.currentBid = aiBid;
+                currentRoom.currentBidder = team.code;
+                currentRoom.timer = 10;
 
-                console.log(`AI Team ${team.code} bid ₹${aiBid} Cr for ${room.currentPlayer.name}`);
+                console.log(`AI Team ${team.code} bid ₹${aiBid} Cr for ${currentRoom.currentPlayer.name}`);
+
+                // Restart timer to ensure it's properly reset
+                if (auctionTimers[roomId]) {
+                  clearInterval(auctionTimers[roomId]);
+                  delete auctionTimers[roomId];
+                }
+                startTimer(roomId);
 
                 io.to(roomId).emit("bid-update", {
-                  currentPlayer: room.currentPlayer,
-                  currentBid: room.currentBid,
-                  currentBidder: room.currentBidder,
-                  timer: room.timer,
-                  teams: getTeamsForClient(room.teams)
+                  currentPlayer: currentRoom.currentPlayer,
+                  currentBid: currentRoom.currentBid,
+                  currentBidder: currentRoom.currentBidder,
+                  timer: currentRoom.timer,
+                  teams: getTeamsForClient(currentRoom.teams),
+                  skippedTeams: currentRoom.skippedTeams || []
                 });
 
                 // Continue AI bidding
@@ -664,6 +739,9 @@ function endAuction(roomId) {
     clearInterval(auctionTimers[roomId]);
     delete auctionTimers[roomId];
   }
+
+  // Clear processing flag
+  delete processingPlayers[roomId];
 
   // Calculate final statistics and determine winner
   const teamScores = auctionEngine.calculateTeamScores(room.teams);
