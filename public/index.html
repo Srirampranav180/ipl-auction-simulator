@@ -1020,6 +1020,7 @@
     });
 
     socket.on("auction-state", (data) => {
+      console.log("Received auction-state:", data);
       currentPlayer = data.currentPlayer;
       currentBid = data.currentBid;
       currentBidder = data.currentBidder;
@@ -1027,12 +1028,28 @@
       allTeams = data.teams || [];
       skippedTeams = data.skippedTeams || [];
       
-      updateAuctionDisplay();
-      updateMyTeam();
+      console.log("Updated allTeams:", allTeams);
+      console.log("mySelectedTeam:", mySelectedTeam);
+      console.log("Finding myTeam from allTeams...");
+      
+      // Force update myTeam from allTeams
+      if (mySelectedTeam) {
+        myTeam = allTeams.find(t => t.code === mySelectedTeam);
+        console.log("myTeam after update:", myTeam);
+        if (myTeam) {
+          console.log("My team purse:", myTeam.purse, "squadSize:", myTeam.squadSize);
+        } else {
+          console.error("ERROR: myTeam not found! mySelectedTeam:", mySelectedTeam, "allTeams codes:", allTeams.map(t => t.code));
+        }
+      }
+      
+      updateAuctionDisplay(); // This calls updateBidInput() and updateSkipButton()
+      updateMyTeam(); // This also calls updateBidInput() and updateSkipButton()
       updateAllTeams();
       updateTeamsOverview(allTeams);
-      updateProgress(data.playerIndex, data.totalPlayers);
-      updateSkipButton();
+      if (data.playerIndex) {
+        updateProgress(data.playerIndex, data.totalPlayers);
+      }
       
       // Reset recovery watchdog
       if (recoveryWatchdog) {
@@ -1054,14 +1071,17 @@
       console.log("Recovery successful:", data.message);
       const statusEl = document.getElementById("status");
       if (statusEl) {
-        statusEl.innerHTML = '<span style="color: #34c759;">Recovery successful! Auction continuing...</span>';
+        statusEl.innerHTML = '<span style="color: #34c759;">Recovery successful! Syncing state...</span>';
         setTimeout(() => {
           statusEl.textContent = "";
         }, 3000);
       }
-      // Request updated state
+      // Request updated state and wait a bit for server to process
       if (currentRoom) {
-        socket.emit("get-auction-state", { roomId: currentRoom });
+        setTimeout(() => {
+          console.log("Requesting updated state after recovery...");
+          socket.emit("get-auction-state", { roomId: currentRoom });
+        }, 500);
       }
     });
     
@@ -1244,7 +1264,7 @@
       if (bidButton) {
         if (!myTeam) {
           bidButton.disabled = true;
-          console.log("Bid button disabled: No team selected");
+          console.warn("Bid button disabled: No team selected. myTeam:", myTeam, "mySelectedTeam:", mySelectedTeam);
         } else if (myTeam.code === currentBidder) {
           // Can't bid if you're already the leading bidder
           bidButton.disabled = true;
@@ -1255,15 +1275,17 @@
           console.log("Bid button disabled: Team has skipped");
         } else {
           // Check if team has enough purse and slots
-          const hasPurse = myTeam.purse >= minBid;
-          const hasSlots = myTeam.squadSize < 15;
+          const purse = myTeam.purse !== undefined ? myTeam.purse : 100;
+          const squadSize = myTeam.squadSize !== undefined ? myTeam.squadSize : 0;
+          const hasPurse = purse >= minBid;
+          const hasSlots = squadSize < 15;
           const canBid = hasPurse && hasSlots;
           bidButton.disabled = !canBid;
           
           if (!canBid) {
-            console.log(`Bid button disabled: hasPurse=${hasPurse} (purse=${myTeam.purse}, min=${minBid}), hasSlots=${hasSlots} (squad=${myTeam.squadSize})`);
+            console.warn(`Bid button disabled: hasPurse=${hasPurse} (purse=${purse}, min=${minBid}), hasSlots=${hasSlots} (squad=${squadSize})`);
           } else {
-            console.log("Bid button enabled");
+            console.log(`Bid button ENABLED: purse=${purse} >= min=${minBid}, squad=${squadSize} < 15`);
           }
         }
       }
@@ -1484,14 +1506,22 @@
         return;
       }
 
-      myTeam = allTeams.find(t => t.code === mySelectedTeam);
-      if (!myTeam) {
-        console.log("My team not found in allTeams. mySelectedTeam:", mySelectedTeam, "allTeams:", allTeams);
-        // Update buttons even if team not found
+      // Always try to find team from allTeams
+      const foundTeam = allTeams.find(t => t.code === mySelectedTeam);
+      if (!foundTeam) {
+        console.warn("My team not found in allTeams. mySelectedTeam:", mySelectedTeam, "allTeams codes:", allTeams.map(t => t.code));
+        // Keep myTeam as is if not found, but still update buttons
+        if (!myTeam) {
+          console.error("CRITICAL: myTeam is null and not found in allTeams!");
+        }
         updateBidInput();
         updateSkipButton();
         return;
       }
+      
+      // Update myTeam reference
+      myTeam = foundTeam;
+      console.log("updateMyTeam: Updated myTeam. Purse:", myTeam.purse, "SquadSize:", myTeam.squadSize, "Code:", myTeam.code);
       
       // Update buttons when team is found
       updateBidInput();
