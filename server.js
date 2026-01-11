@@ -36,6 +36,8 @@ const IPL_TEAMS = [
 const rooms = {};
 const auctionTimers = {}; // roomId -> timer object
 const processingPlayers = {}; // roomId -> boolean (prevents duplicate processing)
+const lastPlayerUpdate = {}; // roomId -> timestamp (for watchdog)
+const watchdogs = {}; // roomId -> watchdog timer
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
@@ -260,12 +262,11 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Validate bid - must be at least base price if no current bid
-    const minBid = room.currentBid || room.currentPlayer.basePrice;
+    // Validate bid - pass null if no current bid, so validation knows it's the first bid
     const validation = auctionEngine.validateBid(
       team,
       bidAmount,
-      minBid,
+      room.currentBid, // null if no bids yet
       room.currentPlayer
     );
 
@@ -413,61 +414,110 @@ function initializeAuction(room) {
 
   // Start auction for current player
 function startPlayerAuction(roomId) {
-  const room = rooms[roomId];
-  if (!room || !room.auctionStarted) {
-    // Cleanup if auction not active
-    if (auctionTimers[roomId]) {
-      clearInterval(auctionTimers[roomId]);
-      delete auctionTimers[roomId];
+  try {
+    const room = rooms[roomId];
+    if (!room) {
+      console.log(`[${roomId}] ERROR: Room not found in startPlayerAuction`);
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId]);
+        delete auctionTimers[roomId];
+      }
+      delete processingPlayers[roomId];
+      return;
     }
+
+    if (!room.auctionStarted) {
+      console.log(`[${roomId}] ERROR: Auction not started in startPlayerAuction`);
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId]);
+        delete auctionTimers[roomId];
+      }
+      delete processingPlayers[roomId];
+      return;
+    }
+
+    // Ensure no processing flag is set
     delete processingPlayers[roomId];
-    return;
+
+    // Check if auction should end
+    const shouldEnd = auctionEngine.shouldEndAuction(room.teams);
+    const outOfPlayers = room.playerIndex >= room.playerPool.length;
+    
+    if (shouldEnd || outOfPlayers) {
+      console.log(`[${roomId}] Ending auction: shouldEnd=${shouldEnd}, outOfPlayers=${outOfPlayers}, index=${room.playerIndex}, poolLength=${room.playerPool.length}`);
+      endAuction(roomId);
+      return;
+    }
+
+    // Ensure we have a valid player index
+    if (room.playerIndex >= room.playerPool.length) {
+      console.log(`[${roomId}] ERROR: Invalid player index ${room.playerIndex} >= ${room.playerPool.length}`);
+      endAuction(roomId);
+      return;
+    }
+
+    if (!room.playerPool || !room.playerPool[room.playerIndex]) {
+      console.log(`[${roomId}] ERROR: No player at index ${room.playerIndex}`);
+      endAuction(roomId);
+      return;
+    }
+
+    // Get next player
+    room.currentPlayer = room.playerPool[room.playerIndex];
+    room.currentBid = null;
+    room.currentBidder = null;
+    room.timer = 15; // Start with 15 seconds
+    room.skippedTeams = []; // Reset skipped teams for new player
+
+    console.log(`[${roomId}] Auctioning player ${room.playerIndex + 1}/${room.totalPlayers}: ${room.currentPlayer.name} (${room.currentPlayer.role}, ${room.currentPlayer.nationality}) - Base Price: ₹${room.currentPlayer.basePrice} Cr`);
+
+    // Broadcast new player with base price as starting bid
+    io.to(roomId).emit("new-player", {
+      currentPlayer: room.currentPlayer,
+      currentBid: null,
+      currentBidder: null,
+      basePrice: room.currentPlayer.basePrice,
+      timer: room.timer,
+      teams: getTeamsForClient(room.teams),
+      playerIndex: room.playerIndex + 1,
+      totalPlayers: room.totalPlayers,
+      skippedTeams: room.skippedTeams
+    });
+
+    // Update last player update timestamp for watchdog
+    lastPlayerUpdate[roomId] = Date.now();
+
+    // Start timer
+    startTimer(roomId);
+    
+    // Trigger AI bids after a short delay
+    setTimeout(() => {
+      processAIBids(roomId);
+    }, 2000);
+    
+    // Start watchdog for this player (safety mechanism)
+    startWatchdog(roomId);
+  } catch (error) {
+    console.error(`[${roomId}] CRITICAL ERROR in startPlayerAuction:`, error);
+    console.error(error.stack);
+    delete processingPlayers[roomId];
+    // Try to continue
+    const room = rooms[roomId];
+    if (room && room.auctionStarted) {
+      room.playerIndex++;
+      if (room.playerIndex < room.playerPool.length) {
+        setTimeout(() => {
+          try {
+            startPlayerAuction(roomId);
+          } catch (e) {
+            console.error(`[${roomId}] Failed to recover:`, e);
+          }
+        }, 2000);
+      } else {
+        endAuction(roomId);
+      }
+    }
   }
-
-  // Ensure no processing flag is set
-  delete processingPlayers[roomId];
-
-  // Check if auction should end
-  if (auctionEngine.shouldEndAuction(room.teams) || room.playerIndex >= room.playerPool.length) {
-    endAuction(roomId);
-    return;
-  }
-
-  // Ensure we have a valid player index
-  if (room.playerIndex >= room.playerPool.length) {
-    endAuction(roomId);
-    return;
-  }
-
-  // Get next player
-  room.currentPlayer = room.playerPool[room.playerIndex];
-  room.currentBid = null;
-  room.currentBidder = null;
-  room.timer = 15; // Start with 15 seconds
-  room.skippedTeams = []; // Reset skipped teams for new player
-
-  console.log(`Auctioning: ${room.currentPlayer.name} (${room.currentPlayer.role}, ${room.currentPlayer.nationality}) - Base Price: ₹${room.currentPlayer.basePrice} Cr`);
-
-  // Broadcast new player with base price as starting bid
-  io.to(roomId).emit("new-player", {
-    currentPlayer: room.currentPlayer,
-    currentBid: null,
-    currentBidder: null,
-    basePrice: room.currentPlayer.basePrice,
-    timer: room.timer,
-    teams: getTeamsForClient(room.teams),
-    playerIndex: room.playerIndex + 1,
-    totalPlayers: room.totalPlayers,
-    skippedTeams: room.skippedTeams
-  });
-
-  // Start timer
-  startTimer(roomId);
-  
-  // Trigger AI bids after a short delay
-  setTimeout(() => {
-    processAIBids(roomId);
-  }, 2000);
 }
 
 // Timer management
@@ -501,8 +551,14 @@ function startTimer(roomId) {
 
     // Timer expired
     if (currentRoom.timer <= 0) {
+      console.log(`[${roomId}] Timer expired for player ${currentRoom.playerIndex + 1}: ${currentRoom.currentPlayer?.name || 'Unknown'}`);
       clearInterval(auctionTimers[roomId]);
       delete auctionTimers[roomId];
+      // Clear watchdog since we're processing
+      if (watchdogs[roomId]) {
+        clearTimeout(watchdogs[roomId]);
+        delete watchdogs[roomId];
+      }
       // Use setTimeout to ensure timer is fully cleared before processing
       setTimeout(() => {
         handlePlayerSold(roomId);
@@ -513,97 +569,168 @@ function startTimer(roomId) {
 
 // Handle player sold/unsold
 function handlePlayerSold(roomId) {
-  // Prevent duplicate processing
-  if (processingPlayers[roomId]) {
-    console.log(`Already processing player for room ${roomId}, skipping...`);
-    return;
-  }
+  try {
+    // Prevent duplicate processing
+    if (processingPlayers[roomId]) {
+      console.log(`[${roomId}] Already processing player, skipping...`);
+      return;
+    }
 
-  const room = rooms[roomId];
-  if (!room || !room.currentPlayer || !room.auctionStarted) {
-    // Auction might have ended, cleanup
+    const room = rooms[roomId];
+    if (!room) {
+      console.log(`[${roomId}] Room not found in handlePlayerSold`);
+      delete processingPlayers[roomId];
+      return;
+    }
+
+    if (!room.currentPlayer) {
+      console.log(`[${roomId}] No current player in handlePlayerSold`);
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId]);
+        delete auctionTimers[roomId];
+      }
+      delete processingPlayers[roomId];
+      return;
+    }
+
+    if (!room.auctionStarted) {
+      console.log(`[${roomId}] Auction not started in handlePlayerSold`);
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId]);
+        delete auctionTimers[roomId];
+      }
+      delete processingPlayers[roomId];
+      return;
+    }
+
+    // Mark as processing
+    processingPlayers[roomId] = true;
+
+    // Store current player data before clearing
+    const currentPlayer = room.currentPlayer;
+    const currentBid = room.currentBid;
+    const currentBidder = room.currentBidder;
+    const currentIndex = room.playerIndex;
+
+    console.log(`[${roomId}] Processing player ${currentIndex + 1}/${room.totalPlayers}: ${currentPlayer.name}, Bid: ${currentBid || 'None'}, Bidder: ${currentBidder || 'None'}`);
+
+    // Clear timer if still running
     if (auctionTimers[roomId]) {
       clearInterval(auctionTimers[roomId]);
       delete auctionTimers[roomId];
     }
-    delete processingPlayers[roomId];
-    return;
-  }
 
-  // Mark as processing
-  processingPlayers[roomId] = true;
+    if (currentBid && currentBidder) {
+      // SOLD
+      const team = room.teams.find(t => t.code === currentBidder);
+      if (team) {
+        team.squad.push({
+          ...currentPlayer,
+          price: currentBid
+        });
+        team.purse -= currentBid;
+        if (currentPlayer.isOverseas) {
+          team.overseasCount++;
+        }
+        team.roleCount[currentPlayer.role] = (team.roleCount[currentPlayer.role] || 0) + 1;
 
-  // Store current player data before clearing
-  const currentPlayer = room.currentPlayer;
-  const currentBid = room.currentBid;
-  const currentBidder = room.currentBidder;
-
-  // Clear timer if still running
-  if (auctionTimers[roomId]) {
-    clearInterval(auctionTimers[roomId]);
-    delete auctionTimers[roomId];
-  }
-
-  if (currentBid && currentBidder) {
-    // SOLD
-    const team = room.teams.find(t => t.code === currentBidder);
-    if (team) {
-      team.squad.push({
-        ...currentPlayer,
-        price: currentBid
-      });
-      team.purse -= currentBid;
-      if (currentPlayer.isOverseas) {
-        team.overseasCount++;
+        console.log(`[${roomId}] SOLD: ${currentPlayer.name} to ${team.code} for ₹${currentBid} Cr`);
+        
+        io.to(roomId).emit("player-sold", {
+          player: currentPlayer,
+          team: team.code,
+          price: currentBid,
+          teams: getTeamsForClient(room.teams)
+        });
+      } else {
+        console.log(`[${roomId}] ERROR: Team ${currentBidder} not found for SOLD player`);
       }
-      team.roleCount[currentPlayer.role] = (team.roleCount[currentPlayer.role] || 0) + 1;
-
-      console.log(`SOLD: ${currentPlayer.name} to ${team.code} for ₹${currentBid} Cr`);
-      
-      io.to(roomId).emit("player-sold", {
+    } else {
+      // UNSOLD
+      console.log(`[${roomId}] UNSOLD: ${currentPlayer.name}`);
+      io.to(roomId).emit("player-unsold", {
         player: currentPlayer,
-        team: team.code,
-        price: currentBid,
         teams: getTeamsForClient(room.teams)
       });
     }
-  } else {
-    // UNSOLD
-    console.log(`UNSOLD: ${currentPlayer.name}`);
-    io.to(roomId).emit("player-unsold", {
-      player: currentPlayer,
-      teams: getTeamsForClient(room.teams)
-    });
-  }
 
-  // Clear current player state
-  room.currentPlayer = null;
-  room.currentBid = null;
-  room.currentBidder = null;
-  room.skippedTeams = [];
+    // Clear current player state
+    room.currentPlayer = null;
+    room.currentBid = null;
+    room.currentBidder = null;
+    room.skippedTeams = [];
 
-  // Move to next player
-  room.playerIndex++;
-  
-  // Clear processing flag
-  delete processingPlayers[roomId];
-  
-  // Check if we should end before starting next player
-  if (auctionEngine.shouldEndAuction(room.teams) || room.playerIndex >= room.playerPool.length) {
-    setTimeout(() => {
-      endAuction(roomId);
-    }, 2000);
-    return;
-  }
-
-  // Start next player auction
-  setTimeout(() => {
-    // Get fresh room reference
-    const nextRoom = rooms[roomId];
-    if (nextRoom && nextRoom.auctionStarted) {
-      startPlayerAuction(roomId);
+    // Move to next player
+    room.playerIndex++;
+    
+    console.log(`[${roomId}] Moved to player index ${room.playerIndex}/${room.totalPlayers}`);
+    
+    // Clear processing flag BEFORE async operations
+    delete processingPlayers[roomId];
+    
+    // Check if we should end before starting next player
+    const shouldEnd = auctionEngine.shouldEndAuction(room.teams);
+    const outOfPlayers = room.playerIndex >= room.playerPool.length;
+    
+    console.log(`[${roomId}] Should end? ${shouldEnd}, Out of players? ${outOfPlayers}`);
+    
+    if (shouldEnd || outOfPlayers) {
+      console.log(`[${roomId}] Ending auction...`);
+      setTimeout(() => {
+        endAuction(roomId);
+      }, 2000);
+      return;
     }
-  }, 2000);
+
+    // Start next player auction with error handling
+    console.log(`[${roomId}] Scheduling next player auction in 2 seconds...`);
+    setTimeout(() => {
+      try {
+        const nextRoom = rooms[roomId];
+        if (!nextRoom) {
+          console.log(`[${roomId}] ERROR: Room not found when starting next player`);
+          return;
+        }
+        if (!nextRoom.auctionStarted) {
+          console.log(`[${roomId}] ERROR: Auction not started when starting next player`);
+          return;
+        }
+        console.log(`[${roomId}] Starting next player auction (index ${nextRoom.playerIndex})...`);
+        startPlayerAuction(roomId);
+      } catch (error) {
+        console.error(`[${roomId}] ERROR in setTimeout for next player:`, error);
+        // Retry once after 1 second
+        setTimeout(() => {
+          try {
+            startPlayerAuction(roomId);
+          } catch (retryError) {
+            console.error(`[${roomId}] ERROR in retry:`, retryError);
+          }
+        }, 1000);
+      }
+    }, 2000);
+  } catch (error) {
+    console.error(`[${roomId}] CRITICAL ERROR in handlePlayerSold:`, error);
+    console.error(error.stack);
+    // Cleanup and try to continue
+    delete processingPlayers[roomId];
+    if (auctionTimers[roomId]) {
+      clearInterval(auctionTimers[roomId]);
+      delete auctionTimers[roomId];
+    }
+    // Try to continue to next player
+    const room = rooms[roomId];
+    if (room && room.auctionStarted) {
+      room.playerIndex++;
+      setTimeout(() => {
+        try {
+          startPlayerAuction(roomId);
+        } catch (e) {
+          console.error(`[${roomId}] Failed to recover:`, e);
+        }
+      }, 2000);
+    }
+  }
 }
 
 // Process AI bids
@@ -625,14 +752,14 @@ function processAIBids(roomId) {
           return; // Skip this team
         }
 
-        const aiBid = calculateAIBid(team, room.currentPlayer, room.currentBid || room.currentPlayer.basePrice);
+        const aiBid = calculateAIBid(team, room.currentPlayer, room.currentBid);
         if (aiBid) {
           // Simulate AI bid
           const currentPlayerId = room.currentPlayer.id;
           setTimeout(() => {
             const currentRoom = rooms[roomId];
             if (currentRoom && currentRoom.currentPlayer && currentRoom.currentPlayer.id === currentPlayerId && currentRoom.auctionStarted && !processingPlayers[roomId]) {
-              const validation = auctionEngine.validateBid(team, aiBid, currentRoom.currentBid || currentRoom.currentPlayer.basePrice, currentRoom.currentPlayer);
+              const validation = auctionEngine.validateBid(team, aiBid, currentRoom.currentBid, currentRoom.currentPlayer);
               if (validation.valid) {
                 currentRoom.currentBid = aiBid;
                 currentRoom.currentBidder = team.code;
@@ -669,18 +796,29 @@ function processAIBids(roomId) {
 
 // Calculate AI bid
 function calculateAIBid(team, player, currentBid) {
-  // AI bidding logic
-  const basePrice = currentBid || player.basePrice;
-  const minIncrement = auctionEngine.getMinIncrement(basePrice);
-  const maxBid = Math.min(team.purse, basePrice + (minIncrement * 5)); // AI won't overbid too much
-
   // Check if team needs this player
   const needsPlayer = shouldAIBid(team, player);
   if (!needsPlayer) return null;
 
+  // If no current bid, AI can bid at base price or slightly above
+  if (currentBid === null || currentBid === undefined) {
+    const needFactor = getNeedFactor(team, player);
+    // Sometimes bid exactly base price, sometimes slightly above
+    const bidAmount = player.basePrice + (needFactor > 0.5 ? auctionEngine.getMinIncrement(player.basePrice) : 0);
+    
+    if (bidAmount <= team.purse) {
+      return Math.round(bidAmount * 100) / 100;
+    }
+    return null;
+  }
+
+  // If there's already a bid, calculate increment
+  const minIncrement = auctionEngine.getMinIncrement(currentBid);
+  const maxBid = Math.min(team.purse, currentBid + (minIncrement * 5)); // AI won't overbid too much
+
   // Calculate bid based on rating and need
   const needFactor = getNeedFactor(team, player);
-  const bidAmount = basePrice + (minIncrement * (1 + needFactor * 2));
+  const bidAmount = currentBid + (minIncrement * (1 + needFactor * 2));
   
   if (bidAmount <= maxBid && bidAmount <= team.purse) {
     return Math.round(bidAmount * 100) / 100;
@@ -723,6 +861,43 @@ function getNeedFactor(team, player) {
   return Math.min(factor, 1.0);
 }
 
+// Watchdog function to detect stuck auctions
+function startWatchdog(roomId) {
+  // Clear existing watchdog
+  if (watchdogs[roomId]) {
+    clearTimeout(watchdogs[roomId]);
+  }
+  
+  // Set watchdog to check after 20 seconds (timer is 15s, so 20s should be safe)
+  watchdogs[roomId] = setTimeout(() => {
+    const room = rooms[roomId];
+    if (!room || !room.auctionStarted) {
+      delete watchdogs[roomId];
+      return;
+    }
+    
+    // Check if timer is at 0 and player hasn't been processed
+    if (room.timer !== undefined && room.timer <= 0 && room.currentPlayer && !processingPlayers[roomId]) {
+      console.log(`[${roomId}] WATCHDOG: Timer at 0 but player not processed. Forcing handlePlayerSold...`);
+      // Force process the player
+      handlePlayerSold(roomId);
+    } else if (room.currentPlayer && lastPlayerUpdate[roomId]) {
+      // Check if player has been stuck for more than 25 seconds
+      const timeSinceUpdate = Date.now() - lastPlayerUpdate[roomId];
+      if (timeSinceUpdate > 25000 && !processingPlayers[roomId]) {
+        console.log(`[${roomId}] WATCHDOG: Player stuck for ${timeSinceUpdate}ms. Forcing next player...`);
+        handlePlayerSold(roomId);
+      } else {
+        // Continue watching
+        startWatchdog(roomId);
+      }
+    } else {
+      // Continue watching
+      startWatchdog(roomId);
+    }
+  }, 5000); // Check every 5 seconds
+}
+
 // End auction
 function endAuction(roomId) {
   const room = rooms[roomId];
@@ -740,8 +915,15 @@ function endAuction(roomId) {
     delete auctionTimers[roomId];
   }
 
+  // Clear watchdog
+  if (watchdogs[roomId]) {
+    clearTimeout(watchdogs[roomId]);
+    delete watchdogs[roomId];
+  }
+
   // Clear processing flag
   delete processingPlayers[roomId];
+  delete lastPlayerUpdate[roomId];
 
   // Calculate final statistics and determine winner
   const teamScores = auctionEngine.calculateTeamScores(room.teams);

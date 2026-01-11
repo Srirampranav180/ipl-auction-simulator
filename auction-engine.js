@@ -54,10 +54,20 @@ function validateBid(team, bidAmount, currentBid, player) {
     return { valid: false, error: 'Maximum 6 overseas players reached' };
   }
 
-  // Check bid increment
-  const minIncrement = getMinIncrement(currentBid);
-  if (bidAmount < currentBid + minIncrement) {
-    return { valid: false, error: `Minimum bid is ₹${(currentBid + minIncrement).toFixed(2)} Cr` };
+  // Check if this is the first bid (no one has bid yet)
+  const isFirstBid = (currentBid === null || currentBid === undefined);
+  
+  if (isFirstBid) {
+    // For first bid, must be at least base price
+    if (bidAmount < player.basePrice) {
+      return { valid: false, error: `Minimum bid is ₹${player.basePrice.toFixed(2)} Cr (base price)` };
+    }
+  } else {
+    // For subsequent bids, must beat current bid by minimum increment
+    const minIncrement = getMinIncrement(currentBid);
+    if (bidAmount < currentBid + minIncrement) {
+      return { valid: false, error: `Minimum bid is ₹${(currentBid + minIncrement).toFixed(2)} Cr` };
+    }
   }
 
   return { valid: true };
