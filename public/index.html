@@ -1077,12 +1077,11 @@
       allTeams = data.teams || [];
       skippedTeams = data.skippedTeams || []; // Reset skipped teams for new player
       
-      updateAuctionDisplay();
-      updateMyTeam();
+      updateAuctionDisplay(); // This calls updateBidInput() and updateSkipButton()
+      updateMyTeam(); // This also calls updateBidInput() and updateSkipButton()
       updateAllTeams();
       updateTeamsOverview(allTeams);
       updateProgress(data.playerIndex, data.totalPlayers);
-      updateSkipButton();
       startTimer();
       
       addActivityLog(`New player: ${data.currentPlayer.name}`, 'bid');
@@ -1096,10 +1095,9 @@
       skippedTeams = data.skippedTeams || [];
       
       updateAuctionDisplay();
-      updateMyTeam();
+      updateMyTeam(); // This will call updateBidInput() and updateSkipButton()
       updateAllTeams();
       updateTeamsOverview(allTeams);
-      updateSkipButton();
       
       if (currentBidder) {
         addActivityLog(`${data.currentBidder} bid ₹${data.currentBid} Cr`, 'bid');
@@ -1214,18 +1212,60 @@
 
     function updateBidInput() {
       const bidInput = document.getElementById("bidInput");
+      const bidButton = document.getElementById("placeBidButton");
+      
+      if (!currentPlayer) {
+        // No current player - disable button but keep input enabled
+        if (bidInput) bidInput.disabled = false; // Keep input enabled
+        if (bidButton) bidButton.disabled = true;
+        return;
+      }
+      
+      // Always enable input field (user can type)
+      if (bidInput) {
+        bidInput.disabled = false;
+        bidInput.readOnly = false;
+      }
+      
       const minBid = currentBid ? currentBid + getMinIncrement(currentBid) : currentPlayer.basePrice;
-      bidInput.min = minBid;
-      bidInput.placeholder = `Min: ₹${minBid.toFixed(2)} Cr`;
-      document.getElementById("minBidInfo").textContent = `Minimum bid: ₹${minBid.toFixed(2)} Cr`;
+      if (bidInput) {
+        bidInput.min = minBid;
+        bidInput.placeholder = `Min: ₹${minBid.toFixed(2)} Cr`;
+      }
+      const minBidInfoEl = document.getElementById("minBidInfo");
+      if (minBidInfoEl) {
+        minBidInfoEl.textContent = `Minimum bid: ₹${minBid.toFixed(2)} Cr`;
+      }
       
       // Update quick bid buttons
       updateQuickBidButtons(minBid);
       
-      // Enable/disable bid button based on my team
-      const bidButton = document.getElementById("placeBidButton");
-      if (!myTeam || myTeam.code !== currentBidder) {
-        bidButton.disabled = false;
+      // Enable/disable bid button based on my team and validation
+      if (bidButton) {
+        if (!myTeam) {
+          bidButton.disabled = true;
+          console.log("Bid button disabled: No team selected");
+        } else if (myTeam.code === currentBidder) {
+          // Can't bid if you're already the leading bidder
+          bidButton.disabled = true;
+          console.log("Bid button disabled: Already leading bidder");
+        } else if (skippedTeams && skippedTeams.includes(myTeam.code)) {
+          // Can't bid if skipped
+          bidButton.disabled = true;
+          console.log("Bid button disabled: Team has skipped");
+        } else {
+          // Check if team has enough purse and slots
+          const hasPurse = myTeam.purse >= minBid;
+          const hasSlots = myTeam.squadSize < 15;
+          const canBid = hasPurse && hasSlots;
+          bidButton.disabled = !canBid;
+          
+          if (!canBid) {
+            console.log(`Bid button disabled: hasPurse=${hasPurse} (purse=${myTeam.purse}, min=${minBid}), hasSlots=${hasSlots} (squad=${myTeam.squadSize})`);
+          } else {
+            console.log("Bid button enabled");
+          }
+        }
       }
     }
 
@@ -1370,29 +1410,42 @@
       const placeBidButton = document.getElementById("placeBidButton");
       const skipStatus = document.getElementById("skipStatus");
       
-      if (!skipButton || !myTeam || !currentPlayer) return;
+      if (!skipButton) return;
       
-      const hasSkipped = skippedTeams.includes(myTeam.code);
+      // If no current player, disable skip button
+      if (!currentPlayer) {
+        skipButton.disabled = true;
+        return;
+      }
+      
+      // If no team selected, disable skip button
+      if (!myTeam) {
+        skipButton.disabled = true;
+        return;
+      }
+      
+      const hasSkipped = skippedTeams && skippedTeams.includes(myTeam.code);
       
       if (hasSkipped) {
         skipButton.disabled = true;
         skipButton.textContent = "Skipped";
         skipButton.style.background = "#d1d1d6";
         skipButton.style.color = "#8e8e93";
-        placeBidButton.disabled = true;
-        skipStatus.textContent = "You have skipped this player";
-        skipStatus.style.color = "#8e8e93";
+        if (placeBidButton) placeBidButton.disabled = true;
+        if (skipStatus) {
+          skipStatus.textContent = "You have skipped this player";
+          skipStatus.style.color = "#8e8e93";
+        }
       } else {
         skipButton.disabled = false;
         skipButton.textContent = "Skip";
         skipButton.style.background = "#8e8e93";
         skipButton.style.color = "white";
-        skipStatus.textContent = "";
+        if (skipStatus) skipStatus.textContent = "";
         
-        // Re-enable bid button if not leading bidder
-        if (myTeam && myTeam.code !== currentBidder) {
-          placeBidButton.disabled = false;
-        }
+        // Update bid button state (don't force enable, let updateBidInput handle it)
+        // This ensures proper validation
+        updateBidInput();
       }
     }
 
@@ -1424,11 +1477,25 @@
     function updateMyTeam() {
       if (!mySelectedTeam) {
         document.getElementById("myTeamCard").style.display = "none";
+        myTeam = null;
+        // Update buttons when team is cleared
+        updateBidInput();
+        updateSkipButton();
         return;
       }
 
       myTeam = allTeams.find(t => t.code === mySelectedTeam);
-      if (!myTeam) return;
+      if (!myTeam) {
+        console.log("My team not found in allTeams. mySelectedTeam:", mySelectedTeam, "allTeams:", allTeams);
+        // Update buttons even if team not found
+        updateBidInput();
+        updateSkipButton();
+        return;
+      }
+      
+      // Update buttons when team is found
+      updateBidInput();
+      updateSkipButton();
 
       document.getElementById("myTeamCard").style.display = "block";
       
