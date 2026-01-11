@@ -367,6 +367,48 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Force recovery - if auction is stuck, force process current player
+  socket.on("force-recovery", ({ roomId }) => {
+    const room = rooms[roomId];
+    if (!room) {
+      socket.emit("error", "Room not found");
+      return;
+    }
+
+    if (!room.auctionStarted) {
+      socket.emit("error", "Auction not started");
+      return;
+    }
+
+    console.log(`[${roomId}] FORCE RECOVERY requested by ${socket.id}`);
+    
+    // Check if timer is at 0 and player exists
+    if (room.currentPlayer && room.timer !== undefined && room.timer <= 0 && !processingPlayers[roomId]) {
+      console.log(`[${roomId}] Force processing stuck player: ${room.currentPlayer.name}`);
+      handlePlayerSold(roomId);
+      socket.emit("recovery-success", { message: "Recovery initiated" });
+    } else if (room.currentPlayer && processingPlayers[roomId]) {
+      console.log(`[${roomId}] Player already being processed, clearing flag and retrying...`);
+      delete processingPlayers[roomId];
+      setTimeout(() => {
+        handlePlayerSold(roomId);
+      }, 500);
+      socket.emit("recovery-success", { message: "Recovery initiated (cleared stuck flag)" });
+    } else if (!room.currentPlayer && room.auctionStarted) {
+      // No current player but auction is active - start next player
+      console.log(`[${roomId}] No current player, starting next player...`);
+      startPlayerAuction(roomId);
+      socket.emit("recovery-success", { message: "Started next player" });
+    } else {
+      socket.emit("recovery-info", { 
+        message: "Auction appears to be running normally",
+        hasPlayer: !!room.currentPlayer,
+        timer: room.timer,
+        isProcessing: !!processingPlayers[roomId]
+      });
+    }
+  });
+
   // Leave room
   socket.on("leave-room", ({ roomId }) => {
     socket.leave(roomId);

@@ -1033,7 +1033,40 @@
       updateTeamsOverview(allTeams);
       updateProgress(data.playerIndex, data.totalPlayers);
       updateSkipButton();
-      startTimer();
+      
+      // Reset recovery watchdog
+      if (recoveryWatchdog) {
+        clearTimeout(recoveryWatchdog);
+        recoveryWatchdog = null;
+      }
+      lastTimerUpdate = Date.now();
+      
+      if (timer > 0) {
+        startTimer();
+      } else {
+        updateTimerDisplay();
+        // If timer is 0, start recovery watchdog
+        startRecoveryWatchdog();
+      }
+    });
+    
+    socket.on("recovery-success", (data) => {
+      console.log("Recovery successful:", data.message);
+      const statusEl = document.getElementById("status");
+      if (statusEl) {
+        statusEl.innerHTML = '<span style="color: #34c759;">Recovery successful! Auction continuing...</span>';
+        setTimeout(() => {
+          statusEl.textContent = "";
+        }, 3000);
+      }
+      // Request updated state
+      if (currentRoom) {
+        socket.emit("get-auction-state", { roomId: currentRoom });
+      }
+    });
+    
+    socket.on("recovery-info", (data) => {
+      console.log("Recovery info:", data);
     });
 
     socket.on("new-player", (data) => {
@@ -1240,19 +1273,86 @@
     }
 
     let timerInterval = null;
+    let lastTimerUpdate = Date.now();
+    let recoveryWatchdog = null;
+    
     function startTimer() {
       if (timerInterval) clearInterval(timerInterval);
+      lastTimerUpdate = Date.now();
       
       updateTimerDisplay();
       timerInterval = setInterval(() => {
         if (timer > 0) {
           timer--;
           updateTimerDisplay();
+          lastTimerUpdate = Date.now();
         } else {
           clearInterval(timerInterval);
+          // Start recovery watchdog when timer hits 0
+          startRecoveryWatchdog();
         }
       }, 1000);
     }
+    
+    function startRecoveryWatchdog() {
+      // Clear existing watchdog
+      if (recoveryWatchdog) clearTimeout(recoveryWatchdog);
+      
+      // If timer is 0 and no new player after 5 seconds, request state recovery
+      recoveryWatchdog = setTimeout(() => {
+        if (timer === 0 && currentPlayer && auctionStarted && currentRoom) {
+          console.log("Timer stuck at 0, requesting state recovery...");
+          socket.emit("get-auction-state", { roomId: currentRoom });
+          
+          // If still stuck after 10 more seconds, show recovery button
+          setTimeout(() => {
+            if (timer === 0 && currentPlayer) {
+              showRecoveryOption();
+            }
+          }, 10000);
+        }
+      }, 5000);
+    }
+    
+    function showRecoveryOption() {
+      const statusEl = document.getElementById("status");
+      if (statusEl && !statusEl.textContent.includes("Recovery")) {
+        const originalText = statusEl.textContent;
+        statusEl.innerHTML = originalText + ' <button onclick="forceRecovery()" style="margin-left: 10px; padding: 5px 10px; background: #ff3b30; color: white; border: none; border-radius: 4px; cursor: pointer;">Force Recovery</button>';
+      }
+    }
+    
+    function forceRecovery() {
+      if (!currentRoom) return;
+      console.log("Forcing recovery...");
+      socket.emit("force-recovery", { roomId: currentRoom });
+      // Also request state
+      socket.emit("get-auction-state", { roomId: currentRoom });
+    }
+    
+    // Make forceRecovery globally accessible
+    window.forceRecovery = forceRecovery;
+    
+    // Reset watchdog on new player or bid update
+    socket.on("new-player", () => {
+      if (recoveryWatchdog) {
+        clearTimeout(recoveryWatchdog);
+        recoveryWatchdog = null;
+      }
+      lastTimerUpdate = Date.now();
+    });
+    
+    socket.on("bid-update", () => {
+      lastTimerUpdate = Date.now();
+      if (recoveryWatchdog) {
+        clearTimeout(recoveryWatchdog);
+        startRecoveryWatchdog();
+      }
+    });
+    
+    socket.on("timer-update", () => {
+      lastTimerUpdate = Date.now();
+    });
 
     function skipPlayer() {
       if (!currentRoom || !currentPlayer || !myTeam) return;
