@@ -1130,6 +1130,14 @@
       allTeams = data.teams || [];
       skippedTeams = data.skippedTeams || [];
       
+      // Force update myTeam from allTeams
+      if (mySelectedTeam) {
+        const foundTeam = allTeams.find(t => t.code === mySelectedTeam);
+        if (foundTeam) {
+          myTeam = foundTeam;
+        }
+      }
+      
       updateAuctionDisplay();
       updateMyTeam(); // This will call updateBidInput() and updateSkipButton()
       updateAllTeams();
@@ -1149,6 +1157,19 @@
 
     socket.on("player-skipped", (data) => {
       skippedTeams = data.skippedTeams || [];
+      allTeams = data.teams || [];
+      
+      // Force update myTeam from allTeams
+      if (mySelectedTeam) {
+        const foundTeam = allTeams.find(t => t.code === mySelectedTeam);
+        if (foundTeam) {
+          myTeam = foundTeam;
+        }
+      }
+      
+      updateMyTeam();
+      updateAllTeams();
+      updateTeamsOverview(allTeams);
       updateSkipButton();
       addActivityLog(`${data.teamName} skipped ${data.playerName}`, 'unsold');
     });
