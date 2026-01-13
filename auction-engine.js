@@ -91,8 +91,10 @@ function initializeTeam(team) {
 
 // Check if auction should end
 function shouldEndAuction(teams) {
-  // All teams have at least 12 players
-  return teams.every(team => team.squad.length >= MIN_SQUAD_SIZE);
+  // Only end auction if ALL teams are FULL (15 players)
+  // Don't end early just because teams have minimum squad size
+  // This allows auction to continue through all 165 players
+  return teams.every(team => team.squad.length >= MAX_SQUAD_SIZE);
 }
 
 // Check if team followed all rules

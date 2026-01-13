@@ -485,8 +485,16 @@ function startPlayerAuction(roomId) {
     const shouldEnd = auctionEngine.shouldEndAuction(room.teams);
     const outOfPlayers = room.playerIndex >= room.playerPool.length;
     
+    // Log team squad sizes for debugging
+    const teamSizes = room.teams.map(t => `${t.code}:${t.squad.length}`).join(', ');
+    console.log(`[${roomId}] Starting player ${room.playerIndex + 1}/${room.totalPlayers} - Team sizes: [${teamSizes}]`);
+    
     if (shouldEnd || outOfPlayers) {
-      console.log(`[${roomId}] Ending auction: shouldEnd=${shouldEnd}, outOfPlayers=${outOfPlayers}, index=${room.playerIndex}, poolLength=${room.playerPool.length}`);
+      if (shouldEnd) {
+        console.log(`[${roomId}] Ending auction: All teams are full (15 players each)`);
+      } else {
+        console.log(`[${roomId}] Ending auction: All ${room.totalPlayers} players have been auctioned`);
+      }
       endAuction(roomId);
       return;
     }
@@ -727,10 +735,17 @@ function handlePlayerSold(roomId) {
     const shouldEnd = auctionEngine.shouldEndAuction(room.teams);
     const outOfPlayers = room.playerIndex >= room.playerPool.length;
     
-    console.log(`[${roomId}] Should end? ${shouldEnd}, Out of players? ${outOfPlayers}`);
+    // Log team squad sizes for debugging
+    const teamSizes = room.teams.map(t => `${t.code}:${t.squad.length}`).join(', ');
+    console.log(`[${roomId}] Player ${room.playerIndex}/${room.totalPlayers} - Team sizes: [${teamSizes}]`);
+    console.log(`[${roomId}] Should end? ${shouldEnd} (all teams full), Out of players? ${outOfPlayers}`);
     
     if (shouldEnd || outOfPlayers) {
-      console.log(`[${roomId}] Ending auction...`);
+      if (shouldEnd) {
+        console.log(`[${roomId}] Ending auction: All teams are full (15 players each)`);
+      } else {
+        console.log(`[${roomId}] Ending auction: All ${room.totalPlayers} players have been auctioned`);
+      }
       setTimeout(() => {
         endAuction(roomId);
       }, 2000);
@@ -738,28 +753,48 @@ function handlePlayerSold(roomId) {
     }
 
     // Start next player auction with error handling
-    console.log(`[${roomId}] Scheduling next player auction in 2 seconds...`);
+    console.log(`[${roomId}] Scheduling next player auction (index ${room.playerIndex}) in 2 seconds...`);
     setTimeout(() => {
       try {
         const nextRoom = rooms[roomId];
         if (!nextRoom) {
-          console.log(`[${roomId}] ERROR: Room not found when starting next player`);
+          console.error(`[${roomId}] ERROR: Room not found when starting next player`);
           return;
         }
         if (!nextRoom.auctionStarted) {
-          console.log(`[${roomId}] ERROR: Auction not started when starting next player`);
+          console.error(`[${roomId}] ERROR: Auction not started when starting next player`);
           return;
         }
-        console.log(`[${roomId}] Starting next player auction (index ${nextRoom.playerIndex})...`);
+        // Double-check we're not out of players
+        if (nextRoom.playerIndex >= nextRoom.playerPool.length) {
+          console.log(`[${roomId}] All players auctioned (${nextRoom.playerIndex}/${nextRoom.totalPlayers}), ending auction`);
+          endAuction(roomId);
+          return;
+        }
+        // Double-check all teams aren't full
+        const allTeamsFull = nextRoom.teams.every(t => t.squad.length >= 15);
+        if (allTeamsFull) {
+          console.log(`[${roomId}] All teams are full (15 players each), ending auction`);
+          endAuction(roomId);
+          return;
+        }
+        console.log(`[${roomId}] Starting next player auction (index ${nextRoom.playerIndex}/${nextRoom.totalPlayers})...`);
         startPlayerAuction(roomId);
       } catch (error) {
         console.error(`[${roomId}] ERROR in setTimeout for next player:`, error);
+        console.error(error.stack);
         // Retry once after 1 second
         setTimeout(() => {
           try {
-            startPlayerAuction(roomId);
+            const retryRoom = rooms[roomId];
+            if (retryRoom && retryRoom.auctionStarted && retryRoom.playerIndex < retryRoom.playerPool.length) {
+              startPlayerAuction(roomId);
+            } else {
+              console.error(`[${roomId}] Cannot retry: room=${!!retryRoom}, started=${retryRoom?.auctionStarted}, index=${retryRoom?.playerIndex}, poolLength=${retryRoom?.playerPool?.length}`);
+            }
           } catch (retryError) {
             console.error(`[${roomId}] ERROR in retry:`, retryError);
+            console.error(retryError.stack);
           }
         }, 1000);
       }
