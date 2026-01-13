@@ -602,8 +602,21 @@ function startTimer(roomId) {
         delete watchdogs[roomId];
       }
       // Use setTimeout to ensure timer is fully cleared before processing
+      // Also ensure we don't process if already processing
       setTimeout(() => {
-        handlePlayerSold(roomId);
+        if (!processingPlayers[roomId]) {
+          handlePlayerSold(roomId);
+        } else {
+          console.log(`[${roomId}] Timer expired but already processing, will retry via watchdog`);
+          // Set a backup timeout in case processing flag gets stuck
+          setTimeout(() => {
+            if (processingPlayers[roomId] && currentRoom.currentPlayer) {
+              console.log(`[${roomId}] Processing flag stuck, clearing and retrying...`);
+              delete processingPlayers[roomId];
+              handlePlayerSold(roomId);
+            }
+          }, 3000);
+        }
       }, 100);
     }
   }, 1000);
@@ -919,14 +932,22 @@ function startWatchdog(roomId) {
     }
     
     // Check if timer is at 0 and player hasn't been processed
-    if (room.timer !== undefined && room.timer <= 0 && room.currentPlayer && !processingPlayers[roomId]) {
+    if (room.timer !== undefined && room.timer <= 0 && room.currentPlayer) {
+      if (processingPlayers[roomId]) {
+        console.log(`[${roomId}] WATCHDOG: Timer at 0 but processing flag is stuck. Clearing flag and processing...`);
+        delete processingPlayers[roomId];
+      }
       console.log(`[${roomId}] WATCHDOG: Timer at 0 but player not processed. Forcing handlePlayerSold...`);
       // Force process the player
       handlePlayerSold(roomId);
     } else if (room.currentPlayer && lastPlayerUpdate[roomId]) {
       // Check if player has been stuck for more than 25 seconds
       const timeSinceUpdate = Date.now() - lastPlayerUpdate[roomId];
-      if (timeSinceUpdate > 25000 && !processingPlayers[roomId]) {
+      if (timeSinceUpdate > 25000) {
+        if (processingPlayers[roomId]) {
+          console.log(`[${roomId}] WATCHDOG: Player stuck for ${timeSinceUpdate}ms and processing flag stuck. Clearing flag...`);
+          delete processingPlayers[roomId];
+        }
         console.log(`[${roomId}] WATCHDOG: Player stuck for ${timeSinceUpdate}ms. Forcing next player...`);
         handlePlayerSold(roomId);
       } else {

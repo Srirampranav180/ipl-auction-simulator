@@ -1034,13 +1034,20 @@
       
       // Force update myTeam from allTeams
       if (mySelectedTeam) {
-        myTeam = allTeams.find(t => t.code === mySelectedTeam);
-        console.log("myTeam after update:", myTeam);
-        if (myTeam) {
-          console.log("My team purse:", myTeam.purse, "squadSize:", myTeam.squadSize);
+        const foundTeam = allTeams.find(t => t.code === mySelectedTeam);
+        if (foundTeam) {
+          myTeam = foundTeam;
+          console.log("myTeam after update:", myTeam);
+          console.log("My team purse:", myTeam.purse, "squadSize:", myTeam.squadSize, "code:", myTeam.code);
         } else {
           console.error("ERROR: myTeam not found! mySelectedTeam:", mySelectedTeam, "allTeams codes:", allTeams.map(t => t.code));
+          // Keep myTeam as is if not found, but log warning
+          if (!myTeam) {
+            console.error("CRITICAL: myTeam is null and not found in allTeams!");
+          }
         }
+      } else {
+        console.warn("No mySelectedTeam set, cannot update myTeam");
       }
       
       updateAuctionDisplay(); // This calls updateBidInput() and updateSkipButton()
@@ -1096,6 +1103,15 @@
       timer = data.timer || 15;
       allTeams = data.teams || [];
       skippedTeams = data.skippedTeams || []; // Reset skipped teams for new player
+      
+      // Force update myTeam from allTeams
+      if (mySelectedTeam) {
+        const foundTeam = allTeams.find(t => t.code === mySelectedTeam);
+        if (foundTeam) {
+          myTeam = foundTeam;
+          console.log("new-player: Updated myTeam. Purse:", myTeam.purse, "SquadSize:", myTeam.squadSize);
+        }
+      }
       
       updateAuctionDisplay(); // This calls updateBidInput() and updateSkipButton()
       updateMyTeam(); // This also calls updateBidInput() and updateSkipButton()
@@ -1417,13 +1433,25 @@
     });
 
     function skipPlayer() {
-      if (!currentRoom || !currentPlayer || !myTeam) return;
-      
-      // Check if already skipped
-      if (skippedTeams.includes(myTeam.code)) {
+      if (!currentRoom || !currentPlayer) {
+        console.error("Cannot skip: missing currentRoom or currentPlayer");
         return;
       }
       
+      // Use mySelectedTeam if myTeam is not available (after recovery)
+      const teamCode = myTeam ? myTeam.code : mySelectedTeam;
+      if (!teamCode) {
+        console.error("Cannot skip: no team selected");
+        return;
+      }
+      
+      // Check if already skipped
+      if (skippedTeams && skippedTeams.includes(teamCode)) {
+        console.log("Already skipped this player");
+        return;
+      }
+      
+      console.log("Skipping player:", currentPlayer.name, "Team:", teamCode);
       socket.emit("skip-player", { roomId: currentRoom });
     }
 
@@ -1437,16 +1465,20 @@
       // If no current player, disable skip button
       if (!currentPlayer) {
         skipButton.disabled = true;
+        console.log("Skip button disabled: No current player");
         return;
       }
       
       // If no team selected, disable skip button
-      if (!myTeam) {
+      if (!myTeam || !mySelectedTeam) {
         skipButton.disabled = true;
+        console.warn("Skip button disabled: No team selected. myTeam:", myTeam, "mySelectedTeam:", mySelectedTeam);
         return;
       }
       
-      const hasSkipped = skippedTeams && skippedTeams.includes(myTeam.code);
+      // Check if already skipped - use mySelectedTeam code if myTeam.code is not available
+      const teamCode = myTeam.code || mySelectedTeam;
+      const hasSkipped = skippedTeams && skippedTeams.includes(teamCode);
       
       if (hasSkipped) {
         skipButton.disabled = true;
@@ -1458,12 +1490,15 @@
           skipStatus.textContent = "You have skipped this player";
           skipStatus.style.color = "#8e8e93";
         }
+        console.log("Skip button disabled: Already skipped");
       } else {
+        // SKIP BUTTON SHOULD ALWAYS WORK - NO PURSE OR SQUAD REQUIREMENTS
         skipButton.disabled = false;
         skipButton.textContent = "Skip";
         skipButton.style.background = "#8e8e93";
         skipButton.style.color = "white";
         if (skipStatus) skipStatus.textContent = "";
+        console.log("Skip button ENABLED - ready to skip");
         
         // Update bid button state (don't force enable, let updateBidInput handle it)
         // This ensures proper validation
